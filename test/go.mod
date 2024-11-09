@@ -1,6 +1,6 @@
 module mihomo-test
 
-go 1.21
+go 1.22
 
 toolchain go1.22.6
 
@@ -59,11 +59,11 @@ require (
 	github.com/mdlayher/socket v0.4.1 // indirect
 	github.com/metacubex/gopacket v1.1.20-0.20230608035415-7e2f98a3e759 // indirect
 	github.com/metacubex/gvisor v0.0.0-20240320004321-933faba989ec // indirect
-	github.com/metacubex/quic-go v0.48.1-0.20241021013658-51ca987e0174 // indirect
+	github.com/metacubex/quic-go v0.48.2-0.20241105005628-a3e65bac65b2 // indirect
 	github.com/metacubex/sing-quic v0.0.0-20240827003841-cd97758ed8b4 // indirect
 	github.com/metacubex/sing-shadowsocks v0.2.8 // indirect
 	github.com/metacubex/sing-shadowsocks2 v0.2.2 // indirect
-	github.com/metacubex/sing-tun v0.2.7-0.20241021011113-857bcd6ee47c // indirect
+	github.com/metacubex/sing-tun v0.2.7-0.20241106120309-53606a70db98 // indirect
 	github.com/metacubex/sing-vmess v0.1.9-0.20240719134745-1df6fb20bbf9 // indirect
 	github.com/metacubex/sing-wireguard v0.0.0-20240924052438-b0976fc59ea3 // indirect
 	github.com/moby/term v0.5.0 // indirect
@@ -85,7 +85,7 @@ require (
 	github.com/sagernet/bbolt v0.0.0-20231014093535-ea5cb2fe9f0a // indirect
 	github.com/sagernet/go-tun2socks v1.16.12-0.20220818015926-16cb67876a61 // indirect
 	github.com/sagernet/netlink v0.0.0-20240612041022-b9a21c07ac6a // indirect
-	github.com/sagernet/sing v0.5.0-rc.4 // indirect
+	github.com/sagernet/sing v0.5.0 // indirect
 	github.com/sagernet/sing-mux v0.2.1-0.20240124034317-9bfb33698bb6 // indirect
 	github.com/sagernet/sing-shadowtls v0.1.4 // indirect
 	github.com/sagernet/smux v0.0.0-20231208180855-7041f6ea79e7 // indirect

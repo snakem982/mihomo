@@ -25,7 +25,13 @@ func (f *defaultInterfaceFinder) Interfaces() []control.Interface {
 	}
 	interfaces := make([]control.Interface, 0, len(ifaces))
 	for _, _interface := range ifaces {
-		interfaces = append(interfaces, control.Interface(*_interface))
+		interfaces = append(interfaces, control.Interface{
+			Index:        _interface.Index,
+			MTU:          _interface.MTU,
+			Name:         _interface.Name,
+			Addresses:    _interface.Addresses,
+			HardwareAddr: _interface.HardwareAddr,
+		})
 	}
 
 	return interfaces
@@ -67,7 +73,13 @@ func (f *defaultInterfaceFinder) InterfaceByAddr(addr netip.Addr) (*control.Inte
 	for _, netInterface := range ifaces {
 		for _, prefix := range netInterface.Addresses {
 			if prefix.Contains(addr) {
-				return (*control.Interface)(netInterface), nil
+				return &control.Interface{
+					Index:        netInterface.Index,
+					MTU:          netInterface.MTU,
+					Name:         netInterface.Name,
+					Addresses:    netInterface.Addresses,
+					HardwareAddr: netInterface.HardwareAddr,
+				}, nil
 			}
 		}
 	}
