@@ -1,8 +1,6 @@
 module github.com/metacubex/mihomo
 
-go 1.21
-
-toolchain go1.22.6
+go 1.22
 
 require (
 	github.com/3andne/restls-client-go v0.1.6
@@ -23,12 +21,12 @@ require (
 	github.com/metacubex/bbolt v0.0.0-20240822011022-aed6d4850399
 	github.com/metacubex/chacha v0.1.0
 	github.com/metacubex/gopacket v1.1.20-0.20230608035415-7e2f98a3e759
-	github.com/metacubex/quic-go v0.48.1-0.20241021013658-51ca987e0174
+	github.com/metacubex/quic-go v0.48.2-0.20241105005628-a3e65bac65b2
 	github.com/metacubex/randv2 v0.2.0
 	github.com/metacubex/sing-quic v0.0.0-20240827003841-cd97758ed8b4
 	github.com/metacubex/sing-shadowsocks v0.2.8
 	github.com/metacubex/sing-shadowsocks2 v0.2.2
-	github.com/metacubex/sing-tun v0.2.7-0.20241021011113-857bcd6ee47c
+	github.com/metacubex/sing-tun v0.2.7-0.20241106120309-53606a70db98
 	github.com/metacubex/sing-vmess v0.1.9-0.20240719134745-1df6fb20bbf9
 	github.com/metacubex/sing-wireguard v0.0.0-20240924052438-b0976fc59ea3
 	github.com/metacubex/tfo-go v0.0.0-20241006021335-daedaf0ca7aa
@@ -42,7 +40,7 @@ require (
 	github.com/sagernet/cors v1.2.1
 	github.com/sagernet/fswatch v0.1.1
 	github.com/sagernet/netlink v0.0.0-20240612041022-b9a21c07ac6a
-	github.com/sagernet/sing v0.5.0-rc.4
+	github.com/sagernet/sing v0.5.0
 	github.com/sagernet/sing-mux v0.2.1-0.20240124034317-9bfb33698bb6
 	github.com/sagernet/sing-shadowtls v0.1.4
 	github.com/samber/lo v1.47.0
@@ -121,6 +119,6 @@ require (
 	google.golang.org/grpc v1.64.1 // indirect
 )
 
-replace github.com/sagernet/sing => github.com/metacubex/sing v0.0.0-20241021005542-18b67490300a
+replace github.com/sagernet/sing => github.com/metacubex/sing v0.0.0-20241105005934-13bf5e941908
 
 replace github.com/enfein/mieru/v3 => github.com/snakem982/mieru/v3 v3.8.1-moshen
