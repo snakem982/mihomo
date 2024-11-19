@@ -107,6 +107,8 @@ type ProxyAdapter interface {
 	SupportUDP() bool
 	SupportXUDP() bool
 	SupportTFO() bool
+	SupportMPTCP() bool
+	SupportSMUX() bool
 	MarshalJSON() ([]byte, error)
 
 	// Deprecated: use DialContextWithDialer and ListenPacketWithDialer instead.
