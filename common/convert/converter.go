@@ -67,7 +67,7 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 			}
 			hysteria["down"] = down
 			hysteria["up"] = up
-			hysteria["skip-cert-verify"], _ = strconv.ParseBool(query.Get("insecure"))
+			hysteria["skip-cert-verify"] = true
 
 			proxies = append(proxies, hysteria)
 
@@ -92,7 +92,7 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 			hysteria2["obfs"] = query.Get("obfs")
 			hysteria2["obfs-password"] = query.Get("obfs-password")
 			hysteria2["sni"] = query.Get("sni")
-			hysteria2["skip-cert-verify"], _ = strconv.ParseBool(query.Get("insecure"))
+			hysteria2["skip-cert-verify"] = true
 			if alpn := query.Get("alpn"); alpn != "" {
 				hysteria2["alpn"] = strings.Split(alpn, ",")
 			}
@@ -148,9 +148,7 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 			if udpRelayMode := query.Get("udp_relay_mode"); udpRelayMode != "" {
 				tuic["udp-relay-mode"] = udpRelayMode
 			}
-			if insecure := query.Get("allow_insecure"); insecure == "1" {
-				tuic["skip-cert-verify"] = true
-			}
+			tuic["skip-cert-verify"] = true
 
 			proxies = append(proxies, tuic)
 
@@ -171,7 +169,7 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 			trojan["port"] = urlTrojan.Port()
 			trojan["password"] = urlTrojan.User.Username()
 			trojan["udp"] = true
-			trojan["skip-cert-verify"], _ = strconv.ParseBool(query.Get("allowInsecure"))
+			trojan["skip-cert-verify"] = true
 
 			if sni := query.Get("sni"); sni != "" {
 				trojan["sni"] = sni
@@ -283,7 +281,7 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 			vmess["udp"] = true
 			vmess["xudp"] = true
 			vmess["tls"] = false
-			vmess["skip-cert-verify"] = false
+			vmess["skip-cert-verify"] = true
 
 			vmess["cipher"] = "auto"
 			if cipher, ok := values["scy"]; ok && cipher != "" {
