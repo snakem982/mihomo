@@ -62,6 +62,13 @@ func (m *Mieru) DialContext(ctx context.Context, metadata *C.Metadata, _ ...dial
 	return NewConn(c, m), nil
 }
 
+// ProxyInfo implements C.ProxyAdapter
+func (m *Mieru) ProxyInfo() C.ProxyInfo {
+	info := m.Base.ProxyInfo()
+	info.DialerProxy = m.option.DialerProxy
+	return info
+}
+
 func NewMieru(option MieruOption) (*Mieru, error) {
 	config, err := buildMieruClientConfig(option)
 	if err != nil {

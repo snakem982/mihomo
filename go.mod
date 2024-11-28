@@ -1,6 +1,6 @@
 module github.com/metacubex/mihomo
 
-go 1.22
+go 1.23
 
 require (
 	github.com/3andne/restls-client-go v0.1.6
@@ -28,7 +28,7 @@ require (
 	github.com/metacubex/sing-shadowsocks2 v0.2.2
 	github.com/metacubex/sing-tun v0.2.7-0.20241106120309-53606a70db98
 	github.com/metacubex/sing-vmess v0.1.9-0.20240719134745-1df6fb20bbf9
-	github.com/metacubex/sing-wireguard v0.0.0-20240924052438-b0976fc59ea3
+	github.com/metacubex/sing-wireguard v0.0.0-20241126021510-0827d417b589
 	github.com/metacubex/tfo-go v0.0.0-20241006021335-daedaf0ca7aa
 	github.com/metacubex/utls v1.6.6
 	github.com/metacubex/wireguard-go v0.0.0-20240922131502-c182e7471181
@@ -52,10 +52,10 @@ require (
 	gitlab.com/go-extension/aes-ccm v0.0.0-20230221065045-e58665ef23c7
 	go.uber.org/automaxprocs v1.6.0
 	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba
-	golang.org/x/crypto v0.28.0
+	golang.org/x/crypto v0.29.0
 	golang.org/x/exp v0.0.0-20240904232852-e7e105dedf7e // lastest version compatible with golang1.20
-	golang.org/x/net v0.30.0
-	golang.org/x/sys v0.26.0
+	golang.org/x/net v0.31.0
+	golang.org/x/sys v0.27.0
 	google.golang.org/protobuf v1.35.1
 	gopkg.in/yaml.v3 v3.0.1
 	lukechampine.com/blake3 v1.3.0
@@ -88,7 +88,7 @@ require (
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mdlayher/socket v0.4.1 // indirect
-	github.com/metacubex/gvisor v0.0.0-20240320004321-933faba989ec // indirect
+	github.com/metacubex/gvisor v0.0.0-20241126021258-5b028898cc5a // indirect
 	github.com/oasisprotocol/deoxysii v0.0.0-20220228165953-2091330c22b7 // indirect
 	github.com/onsi/ginkgo/v2 v2.9.5 // indirect
 	github.com/pierrec/lz4/v4 v4.1.14 // indirect
@@ -111,9 +111,9 @@ require (
 	gitlab.com/yawning/bsaes.git v0.0.0-20190805113838-0a714cd429ec // indirect
 	go.uber.org/mock v0.4.0 // indirect
 	golang.org/x/mod v0.20.0 // indirect
-	golang.org/x/sync v0.8.0 // indirect
-	golang.org/x/text v0.19.0 // indirect
-	golang.org/x/time v0.5.0 // indirect
+	golang.org/x/sync v0.9.0 // indirect
+	golang.org/x/text v0.20.0 // indirect
+	golang.org/x/time v0.7.0 // indirect
 	golang.org/x/tools v0.24.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240610135401-a8a62080eff3 // indirect
 	google.golang.org/grpc v1.64.1 // indirect
