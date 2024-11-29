@@ -1,8 +1,8 @@
 module mihomo-test
 
-go 1.22
+go 1.23
 
-toolchain go1.22.6
+toolchain go1.23.3
 
 require (
 	github.com/docker/docker v20.10.21+incompatible
@@ -10,7 +10,7 @@ require (
 	github.com/metacubex/mihomo v0.0.0
 	github.com/miekg/dns v1.1.62
 	github.com/stretchr/testify v1.9.0
-	golang.org/x/net v0.30.0
+	golang.org/x/net v0.31.0
 )
 
 replace github.com/metacubex/mihomo => ../
@@ -58,14 +58,14 @@ require (
 	github.com/mdlayher/netlink v1.7.2 // indirect
 	github.com/mdlayher/socket v0.4.1 // indirect
 	github.com/metacubex/gopacket v1.1.20-0.20230608035415-7e2f98a3e759 // indirect
-	github.com/metacubex/gvisor v0.0.0-20240320004321-933faba989ec // indirect
-	github.com/metacubex/quic-go v0.48.2-0.20241105005628-a3e65bac65b2 // indirect
+	github.com/metacubex/gvisor v0.0.0-20241126021258-5b028898cc5a // indirect
+	github.com/metacubex/quic-go v0.48.3-0.20241126053724-b69fea3888da // indirect
 	github.com/metacubex/sing-quic v0.0.0-20240827003841-cd97758ed8b4 // indirect
 	github.com/metacubex/sing-shadowsocks v0.2.8 // indirect
 	github.com/metacubex/sing-shadowsocks2 v0.2.2 // indirect
-	github.com/metacubex/sing-tun v0.2.7-0.20241106120309-53606a70db98 // indirect
+	github.com/metacubex/sing-tun v0.4.2 // indirect
 	github.com/metacubex/sing-vmess v0.1.9-0.20240719134745-1df6fb20bbf9 // indirect
-	github.com/metacubex/sing-wireguard v0.0.0-20240924052438-b0976fc59ea3 // indirect
+	github.com/metacubex/sing-wireguard v0.0.0-20241126021510-0827d417b589 // indirect
 	github.com/moby/term v0.5.0 // indirect
 	github.com/morikuni/aec v1.0.0 // indirect
 	github.com/mroth/weightedrand/v2 v2.1.0 // indirect
@@ -85,7 +85,7 @@ require (
 	github.com/sagernet/bbolt v0.0.0-20231014093535-ea5cb2fe9f0a // indirect
 	github.com/sagernet/go-tun2socks v1.16.12-0.20220818015926-16cb67876a61 // indirect
 	github.com/sagernet/netlink v0.0.0-20240612041022-b9a21c07ac6a // indirect
-	github.com/sagernet/sing v0.5.0 // indirect
+	github.com/sagernet/sing v0.5.1 // indirect
 	github.com/sagernet/sing-mux v0.2.1-0.20240124034317-9bfb33698bb6 // indirect
 	github.com/sagernet/sing-shadowtls v0.1.4 // indirect
 	github.com/sagernet/smux v0.0.0-20231208180855-7041f6ea79e7 // indirect
@@ -110,13 +110,13 @@ require (
 	gitlab.com/yawning/bsaes.git v0.0.0-20190805113838-0a714cd429ec // indirect
 	go.uber.org/mock v0.4.0 // indirect
 	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba // indirect
-	golang.org/x/crypto v0.28.0 // indirect
+	golang.org/x/crypto v0.29.0 // indirect
 	golang.org/x/exp v0.0.0-20240904232852-e7e105dedf7e // indirect
 	golang.org/x/mod v0.20.0 // indirect
-	golang.org/x/sync v0.8.0 // indirect
-	golang.org/x/sys v0.26.0 // indirect
-	golang.org/x/text v0.19.0 // indirect
-	golang.org/x/time v0.5.0 // indirect
+	golang.org/x/sync v0.9.0 // indirect
+	golang.org/x/sys v0.27.0 // indirect
+	golang.org/x/text v0.20.0 // indirect
+	golang.org/x/time v0.7.0 // indirect
 	golang.org/x/tools v0.24.0 // indirect
 	google.golang.org/protobuf v1.35.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
