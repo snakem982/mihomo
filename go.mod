@@ -121,4 +121,4 @@ require (
 
 replace github.com/sagernet/sing => github.com/metacubex/sing v0.0.0-20241121030428-33b6ebc52000
 
-replace github.com/enfein/mieru/v3 => github.com/snakem982/mieru/v3 v3.8.1-moshen
+replace github.com/enfein/mieru/v3 => github.com/snakem982/mieru/v3 v3.8.2-moshen

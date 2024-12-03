@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	mierumodel "github.com/enfein/mieru/v3/apis/model"
+	"github.com/metacubex/mihomo/component/proxydialer"
 	"net"
 	"runtime"
 	"strconv"
@@ -38,9 +39,8 @@ type MieruOption struct {
 	MTU       int    `proxy:"mtu,omitempty"`
 }
 
-// DialContext implements C.ProxyAdapter
-func (m *Mieru) DialContext(ctx context.Context, metadata *C.Metadata, _ ...dialer.Option) (_ C.Conn, err error) {
-
+// StreamConnContext implements C.ProxyAdapter
+func (m *Mieru) StreamConnContext(ctx context.Context, c net.Conn, metadata *C.Metadata) (net.Conn, error) {
 	netAddrSpec := mierumodel.NetAddrSpec{
 		AddrSpec: mierumodel.AddrSpec{
 			Port: int(metadata.DstPort),
@@ -54,7 +54,37 @@ func (m *Mieru) DialContext(ctx context.Context, metadata *C.Metadata, _ ...dial
 		netAddrSpec.AddrSpec.IP = metadata.DstIP.AsSlice()
 	}
 
-	c, err := m.client.DialContext(ctx, netAddrSpec)
+	mc, err := m.client.DialContextWithConn(ctx, c, netAddrSpec)
+	if err != nil {
+		return nil, err
+	}
+
+	return mc, nil
+}
+
+// DialContext implements C.ProxyAdapter
+func (m *Mieru) DialContext(ctx context.Context, metadata *C.Metadata, opts ...dialer.Option) (_ C.Conn, err error) {
+	return m.DialContextWithDialer(ctx, dialer.NewDialer(m.Base.DialOptions(opts...)...), metadata)
+}
+
+// DialContextWithDialer implements C.ProxyAdapter
+func (m *Mieru) DialContextWithDialer(ctx context.Context, dialer C.Dialer, metadata *C.Metadata) (_ C.Conn, err error) {
+	if len(m.option.DialerProxy) > 0 {
+		dialer, err = proxydialer.NewByName(m.option.DialerProxy, dialer)
+		if err != nil {
+			return nil, err
+		}
+	}
+	c, err := dialer.DialContext(ctx, "tcp", m.addr)
+	if err != nil {
+		return nil, fmt.Errorf("%s connect error: %w", m.addr, err)
+	}
+
+	defer func(c net.Conn) {
+		safeConnClose(c, err)
+	}(c)
+
+	c, err = m.StreamConnContext(ctx, c, metadata)
 	if err != nil {
 		return nil, err
 	}
