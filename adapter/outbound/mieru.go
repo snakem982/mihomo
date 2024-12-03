@@ -62,6 +62,16 @@ func (m *Mieru) DialContext(ctx context.Context, metadata *C.Metadata, _ ...dial
 	return NewConn(c, m), nil
 }
 
+// SupportWithDialer implements C.ProxyAdapter
+func (m *Mieru) SupportWithDialer() C.NetWork {
+	return C.TCP
+}
+
+// SupportUOT implements C.ProxyAdapter
+func (m *Mieru) SupportUOT() bool {
+	return false
+}
+
 // ProxyInfo implements C.ProxyAdapter
 func (m *Mieru) ProxyInfo() C.ProxyInfo {
 	info := m.Base.ProxyInfo()
