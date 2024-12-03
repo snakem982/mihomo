@@ -54,12 +54,7 @@ func (m *Mieru) StreamConnContext(ctx context.Context, c net.Conn, metadata *C.M
 		netAddrSpec.AddrSpec.IP = metadata.DstIP.AsSlice()
 	}
 
-	mc, err := m.client.DialContextWithConn(ctx, c, netAddrSpec)
-	if err != nil {
-		return nil, err
-	}
-
-	return mc, nil
+	return m.client.DialContextWithConn(ctx, c, netAddrSpec)
 }
 
 // DialContext implements C.ProxyAdapter
