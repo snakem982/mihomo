@@ -361,8 +361,19 @@ func resolveNetwork(v map[string]any, outbound SingBoxOption) {
 			v["h2-opts"] = SingTransportToMap(outbound.Transport)
 		case "tcp", "http":
 			v["http-opts"] = SingTransportToMap(outbound.Transport)
-		case "ws", "httpupgrade":
+		case "ws":
 			v["ws-opts"] = SingTransportToMap(outbound.Transport)
+		case "httpupgrade":
+			headers := make(map[string]any)
+			wsOpts := make(map[string]any)
+			headers["User-Agent"] = RandUserAgent()
+			headers["Host"] = outbound.Transport.Host
+			wsOpts["path"] = outbound.Transport.Path
+			wsOpts["headers"] = headers
+			wsOpts["v2ray-http-upgrade"] = true
+			wsOpts["v2ray-http-upgrade-fast-open"] = true
+			v["network"] = "ws"
+			v["ws-opts"] = wsOpts
 		case "grpc":
 			v["grpc-opts"] = SingTransportToMap(outbound.Transport)
 		}
