@@ -319,7 +319,15 @@ func resolveBase(v map[string]any, name, scheme string, outbound SingBoxOption) 
 
 func resolveTls(v map[string]any, singTLS *SingTLS) {
 	if singTLS != nil {
-		v["servername"] = singTLS.ServerName
+		if singTLS.ServerName != "" {
+			switch v["type"] {
+			case "vmess", "vless":
+				v["servername"] = singTLS.ServerName
+			default:
+				v["sni"] = singTLS.ServerName
+			}
+		}
+
 		v["tls"] = singTLS.Enabled
 
 		if singTLS.Insecure {
