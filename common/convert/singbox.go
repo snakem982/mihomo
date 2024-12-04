@@ -3,6 +3,7 @@ package convert
 import (
 	"encoding/json"
 	"fmt"
+	"gopkg.in/yaml.v3"
 	"net/url"
 	"strconv"
 	"strings"
@@ -26,18 +27,11 @@ func ConvertsSingBox(buf []byte) ([]map[string]any, error) {
 			name := uniqueName(names, outbound.Tag)
 			hysteria := make(map[string]any, 20)
 
-			hysteria["name"] = name
-			hysteria["type"] = scheme
-			hysteria["server"] = outbound.Server
-			hysteria["port"] = outbound.ServerPort
-
-			if outbound.TLS != nil {
-				hysteria["sni"] = outbound.TLS.ServerName
-				hysteria["alpn"] = outbound.TLS.Alpn
-			}
+			resolveBase(hysteria, name, scheme, outbound)
+			resolveTls(hysteria, outbound.TLS)
 
 			if outbound.Obfs != nil {
-				hysteria["obfs"] = outbound.Obfs.Value
+				hysteria["obfs"] = outbound.Obfs.Password
 			}
 
 			hysteria["auth_str"] = outbound.AuthStr
@@ -52,7 +46,6 @@ func ConvertsSingBox(buf []byte) ([]map[string]any, error) {
 			}
 			hysteria["down"] = down
 			hysteria["up"] = up
-			hysteria["skip-cert-verify"] = true
 
 			proxies = append(proxies, hysteria)
 
@@ -60,26 +53,22 @@ func ConvertsSingBox(buf []byte) ([]map[string]any, error) {
 			name := uniqueName(names, outbound.Tag)
 			hysteria2 := make(map[string]any, 20)
 
-			hysteria2["name"] = name
-			hysteria2["type"] = scheme
-			hysteria2["server"] = outbound.Server
-			hysteria2["port"] = outbound.ServerPort
-
-			if outbound.TLS != nil {
-				hysteria2["sni"] = outbound.TLS.ServerName
-				hysteria2["alpn"] = outbound.TLS.Alpn
-			}
+			resolveBase(hysteria2, name, scheme, outbound)
+			resolveTls(hysteria2, outbound.TLS)
 
 			if outbound.Obfs != nil {
 				hysteria2["obfs"] = outbound.Obfs.Type
-				hysteria2["obfs-password"] = outbound.Obfs.Value
+				hysteria2["obfs-password"] = outbound.Obfs.Password
 			}
 
-			hysteria2["skip-cert-verify"] = true
 			hysteria2["password"] = outbound.Password
 
-			hysteria2["down"] = outbound.DownMbps
-			hysteria2["up"] = outbound.UpMbps
+			if outbound.DownMbps > 0 {
+				hysteria2["down"] = outbound.DownMbps
+			}
+			if outbound.UpMbps > 0 {
+				hysteria2["up"] = outbound.UpMbps
+			}
 
 			proxies = append(proxies, hysteria2)
 
@@ -87,65 +76,29 @@ func ConvertsSingBox(buf []byte) ([]map[string]any, error) {
 			name := uniqueName(names, outbound.Tag)
 			tuic := make(map[string]any, 20)
 
-			tuic["name"] = name
-			tuic["type"] = scheme
-			tuic["server"] = outbound.Server
-			tuic["port"] = outbound.ServerPort
+			resolveBase(tuic, name, scheme, outbound)
 
 			tuic["uuid"] = outbound.UUID
 			tuic["password"] = outbound.Password
 			tuic["congestion-controller"] = outbound.CongestionController
 
-			if outbound.TLS != nil {
-				tuic["sni"] = outbound.TLS.ServerName
-				tuic["alpn"] = outbound.TLS.Alpn
-			}
+			resolveTls(tuic, outbound.TLS)
+
 			tuic["udp-relay-mode"] = outbound.UdpRelayMode
 			tuic["udp"] = true
-			tuic["skip-cert-verify"] = true
 
 			proxies = append(proxies, tuic)
 		case "trojan":
 			name := uniqueName(names, outbound.Tag)
 			trojan := make(map[string]any, 20)
 
-			trojan["name"] = name
-			trojan["type"] = scheme
-			trojan["server"] = outbound.Server
-			trojan["port"] = outbound.ServerPort
+			resolveBase(trojan, name, scheme, outbound)
 
 			trojan["password"] = outbound.Password
 			trojan["udp"] = true
-			trojan["skip-cert-verify"] = true
 
-			if outbound.TLS != nil {
-				trojan["sni"] = outbound.TLS.ServerName
-				trojan["alpn"] = outbound.TLS.Alpn
-			}
-
-			trojan["network"] = outbound.Network
-
-			switch outbound.Network {
-			case "ws":
-				wsOpts := make(map[string]any)
-
-				if outbound.Transport != nil {
-					wsOpts["path"] = outbound.Transport.Path
-					wsOpts["headers"] = outbound.Transport.Headers
-				}
-
-				trojan["ws-opts"] = wsOpts
-			case "grpc":
-				grpcOpts := make(map[string]any)
-
-				if outbound.Transport != nil {
-					grpcOpts["grpc-service-name"] = outbound.Transport.ServiceName
-				}
-
-				trojan["grpc-opts"] = grpcOpts
-			}
-
-			trojan["client-fingerprint"] = "chrome"
+			resolveTls(trojan, outbound.TLS)
+			resolveNetwork(trojan, outbound)
 
 			proxies = append(proxies, trojan)
 
@@ -153,29 +106,13 @@ func ConvertsSingBox(buf []byte) ([]map[string]any, error) {
 			name := uniqueName(names, outbound.Tag)
 			vless := make(map[string]any, 20)
 
-			vless["name"] = name
-			vless["type"] = scheme
-			vless["server"] = outbound.Server
-			vless["port"] = outbound.ServerPort
+			resolveBase(vless, name, scheme, outbound)
 
 			vless["uuid"] = outbound.UUID
 			vless["flow"] = outbound.Flow
 
-			vless["skip-cert-verify"] = true
-
-			if outbound.TLS != nil {
-				vless["servername"] = outbound.TLS.ServerName
-				vless["alpn"] = outbound.TLS.Alpn
-
-				if outbound.TLS.Reality != nil {
-					vless["reality-opts"] = map[string]any{
-						"public-key": outbound.TLS.Reality.PublicKey,
-						"short-id":   outbound.TLS.Reality.ShortID,
-					}
-					vless["tls"] = true
-					vless["client-fingerprint"] = "chrome"
-				}
-			}
+			resolveTls(vless, outbound.TLS)
+			resolveNetwork(vless, outbound)
 
 			switch outbound.PacketEncoding {
 			case "none":
@@ -185,39 +122,13 @@ func ConvertsSingBox(buf []byte) ([]map[string]any, error) {
 				vless["xudp"] = true
 			}
 
-			vless["network"] = outbound.Network
-
-			switch outbound.Network {
-			case "h2":
-				if outbound.Transport != nil {
-					vless["h2-opts"] = outbound.Transport
-				}
-			case "tcp", "http":
-				if outbound.Transport != nil {
-					vless["http-opts"] = outbound.Transport
-				}
-			case "ws", "httpupgrade":
-				if outbound.Transport != nil {
-					vless["ws-opts"] = outbound.Transport
-				}
-			case "grpc":
-				grpcOpts := make(map[string]any)
-				if outbound.Transport != nil {
-					grpcOpts["grpc-service-name"] = outbound.Transport.ServiceName
-				}
-				vless["grpc-opts"] = grpcOpts
-			}
-
 			proxies = append(proxies, vless)
 
 		case "vmess":
 			name := uniqueName(names, outbound.Tag)
 			vmess := make(map[string]any, 20)
 
-			vmess["name"] = name
-			vmess["type"] = scheme
-			vmess["server"] = outbound.Server
-			vmess["port"] = outbound.ServerPort
+			resolveBase(vmess, name, scheme, outbound)
 
 			vmess["uuid"] = outbound.UUID
 			vmess["alterId"] = outbound.AlterID
@@ -226,36 +137,9 @@ func ConvertsSingBox(buf []byte) ([]map[string]any, error) {
 			vmess["udp"] = true
 			vmess["xudp"] = true
 			vmess["tls"] = false
-			vmess["skip-cert-verify"] = true
 
-			if outbound.TLS != nil {
-				vmess["servername"] = outbound.TLS.ServerName
-				vmess["alpn"] = outbound.TLS.Alpn
-				vmess["tls"] = outbound.TLS.Enabled
-			}
-
-			vmess["network"] = outbound.Network
-
-			switch outbound.Network {
-			case "h2":
-				if outbound.Transport != nil {
-					vmess["h2-opts"] = outbound.Transport
-				}
-			case "tcp", "http":
-				if outbound.Transport != nil {
-					vmess["http-opts"] = outbound.Transport
-				}
-			case "ws", "httpupgrade":
-				if outbound.Transport != nil {
-					vmess["ws-opts"] = outbound.Transport
-				}
-			case "grpc":
-				grpcOpts := make(map[string]any)
-				if outbound.Transport != nil {
-					grpcOpts["grpc-service-name"] = outbound.Transport.ServiceName
-				}
-				vmess["grpc-opts"] = grpcOpts
-			}
+			resolveTls(vmess, outbound.TLS)
+			resolveNetwork(vmess, outbound)
 
 			proxies = append(proxies, vmess)
 
@@ -264,10 +148,7 @@ func ConvertsSingBox(buf []byte) ([]map[string]any, error) {
 			name := uniqueName(names, outbound.Tag)
 			ss := make(map[string]any, 20)
 
-			ss["name"] = name
-			ss["type"] = scheme
-			ss["server"] = outbound.Server
-			ss["port"] = outbound.ServerPort
+			resolveBase(ss, name, scheme, outbound)
 
 			ss["cipher"] = outbound.Method
 			ss["password"] = outbound.Password
@@ -392,14 +273,14 @@ type SingReality struct {
 }
 
 type SingTransport struct {
-	Headers             map[string]any `json:"headers,omitempty"`
-	Path                string         `json:"path,omitempty"`
-	Type                string         `json:"type,omitempty"`
-	EarlyDataHeaderName string         `json:"early_data_header_name,omitempty"`
-	MaxEarlyData        int            `json:"max_early_data,omitempty"`
-	Host                any            `json:"host,omitempty"`
-	Method              string         `json:"method,omitempty"`
-	ServiceName         string         `json:"service_name,omitempty"`
+	Headers             map[string]any `json:"headers,omitempty" yaml:"headers,omitempty"`
+	Path                string         `json:"path,omitempty" yaml:"path,omitempty"`
+	Type                string         `json:"type,omitempty" yaml:"type,omitempty"`
+	EarlyDataHeaderName string         `json:"early_data_header_name,omitempty" yaml:"early-data-header-name,omitempty"`
+	MaxEarlyData        int            `json:"max_early_data,omitempty" yaml:"max-early-data,omitempty"`
+	Host                any            `json:"host,omitempty" yaml:"host,omitempty"`
+	Method              string         `json:"method,omitempty" yaml:"method,omitempty"`
+	ServiceName         string         `json:"service_name,omitempty" yaml:"grpc-service-name,omitempty"`
 }
 
 type SingMultiplex struct {
@@ -421,10 +302,85 @@ type SingWireguardMultiPeer struct {
 }
 
 type SingObfs struct {
-	Value string
-	Type  string
+	Password string `json:"password,omitempty"`
+	Type     string `json:"type,omitempty"`
 }
 
 type SingConfig struct {
 	Outbounds []SingBoxOption `json:"outbounds,omitempty"`
+}
+
+func resolveBase(v map[string]any, name, scheme string, outbound SingBoxOption) {
+	v["name"] = name
+	v["type"] = scheme
+	v["server"] = outbound.Server
+	v["port"] = outbound.ServerPort
+}
+
+func resolveTls(v map[string]any, singTLS *SingTLS) {
+	if singTLS != nil {
+		v["servername"] = singTLS.ServerName
+		v["tls"] = singTLS.Enabled
+
+		if singTLS.Insecure {
+			v["skip-cert-verify"] = true
+		}
+
+		if len(singTLS.Alpn) > 0 {
+			v["alpn"] = singTLS.Alpn
+		}
+
+		if singTLS.Reality != nil {
+			v["reality-opts"] = map[string]any{
+				"public-key": singTLS.Reality.PublicKey,
+				"short-id":   singTLS.Reality.ShortID,
+			}
+		}
+
+		if singTLS.Utls != nil {
+			v["client-fingerprint"] = singTLS.Utls.Fingerprint
+		}
+	}
+}
+
+func resolveNetwork(v map[string]any, outbound SingBoxOption) {
+	if outbound.Network != "" {
+		v["network"] = outbound.Network
+	}
+
+	if outbound.Transport != nil {
+		network := "tcp"
+		if outbound.Transport.Type != "" {
+			network = outbound.Transport.Type
+			outbound.Transport.Type = ""
+		}
+		v["network"] = network
+
+		switch network {
+		case "h2":
+			v["h2-opts"] = SingTransportToMap(outbound.Transport)
+		case "tcp", "http":
+			v["http-opts"] = SingTransportToMap(outbound.Transport)
+		case "ws", "httpupgrade":
+			v["ws-opts"] = SingTransportToMap(outbound.Transport)
+		case "grpc":
+			v["grpc-opts"] = SingTransportToMap(outbound.Transport)
+		}
+	}
+}
+
+func SingTransportToMap(obj *SingTransport) map[string]interface{} {
+	var result map[string]interface{}
+
+	marshal, err := yaml.Marshal(obj)
+	if err != nil {
+		return nil
+	}
+
+	err = yaml.Unmarshal(marshal, &result)
+	if err != nil {
+		return nil
+	}
+
+	return result
 }
