@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"gopkg.in/yaml.v3"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 )
@@ -132,7 +133,11 @@ func ConvertsSingBox(buf []byte) ([]map[string]any, error) {
 
 			vmess["uuid"] = outbound.UUID
 			vmess["alterId"] = outbound.AlterID
-			vmess["cipher"] = outbound.Security
+			if outbound.Security != "" {
+				vmess["cipher"] = outbound.Security
+			} else {
+				vmess["cipher"] = "auto"
+			}
 
 			vmess["udp"] = true
 			vmess["xudp"] = true
@@ -275,14 +280,14 @@ type SingReality struct {
 }
 
 type SingTransport struct {
-	Headers             map[string]any `json:"headers,omitempty" yaml:"headers,omitempty"`
-	Path                string         `json:"path,omitempty" yaml:"path,omitempty"`
-	Type                string         `json:"type,omitempty" yaml:"type,omitempty"`
-	EarlyDataHeaderName string         `json:"early_data_header_name,omitempty" yaml:"early-data-header-name,omitempty"`
-	MaxEarlyData        int            `json:"max_early_data,omitempty" yaml:"max-early-data,omitempty"`
-	Host                any            `json:"host,omitempty" yaml:"host,omitempty"`
-	Method              string         `json:"method,omitempty" yaml:"method,omitempty"`
-	ServiceName         string         `json:"service_name,omitempty" yaml:"grpc-service-name,omitempty"`
+	Headers             any    `json:"headers,omitempty" yaml:"headers,omitempty"`
+	Path                string `json:"path,omitempty" yaml:"path,omitempty"`
+	Type                string `json:"type,omitempty" yaml:"type,omitempty"`
+	EarlyDataHeaderName string `json:"early_data_header_name,omitempty" yaml:"early-data-header-name,omitempty"`
+	MaxEarlyData        int    `json:"max_early_data,omitempty" yaml:"max-early-data,omitempty"`
+	Host                any    `json:"host,omitempty" yaml:"host,omitempty"`
+	Method              string `json:"method,omitempty" yaml:"method,omitempty"`
+	ServiceName         string `json:"service_name,omitempty" yaml:"grpc-service-name,omitempty"`
 }
 
 type SingMultiplex struct {
@@ -401,6 +406,12 @@ func SingTransportToMap(obj *SingTransport) map[string]interface{} {
 	err = yaml.Unmarshal(marshal, &result)
 	if err != nil {
 		return nil
+	}
+
+	if _, exists := result["headers"]; exists {
+		if reflect.TypeOf(result["headers"]).Kind() != reflect.Map {
+			delete(result, "headers")
+		}
 	}
 
 	return result
