@@ -143,12 +143,12 @@ func ConvertsSingBox(buf []byte) ([]map[string]any, error) {
 
 			proxies = append(proxies, vmess)
 
-		case "ss":
+		case "ss", "shadowsocks":
 
 			name := uniqueName(names, outbound.Tag)
 			ss := make(map[string]any, 20)
 
-			resolveBase(ss, name, scheme, outbound)
+			resolveBase(ss, name, "ss", outbound)
 
 			ss["cipher"] = outbound.Method
 			ss["password"] = outbound.Password
@@ -157,6 +157,7 @@ func ConvertsSingBox(buf []byte) ([]map[string]any, error) {
 
 			if outbound.UdpOverTcp != nil {
 				ss["udp-over-tcp"] = outbound.UdpOverTcp.Enabled
+				ss["udp-over-tcp-version"] = outbound.UdpOverTcp.Version
 			}
 
 			plugin := outbound.Plugin
@@ -249,6 +250,7 @@ type SingBoxOption struct {
 
 type SingUdpOverTcp struct {
 	Enabled bool `json:"enabled,omitempty"`
+	Version bool `json:"version,omitempty"`
 }
 
 type SingTLS struct {

@@ -220,7 +220,7 @@ func buildMieruClientConfig(option MieruOption) (*mieruclient.ClientConfig, erro
 			Servers: []*mierupb.ServerEndpoint{server},
 			Mtu:     proto.Int32(int32(option.MTU)),
 			Multiplexing: &mierupb.MultiplexingConfig{
-				Level: mierupb.MultiplexingLevel_MULTIPLEXING_HIGH.Enum(),
+				Level: mierupb.MultiplexingLevel_MULTIPLEXING_OFF.Enum(),
 			},
 		},
 	}, nil
