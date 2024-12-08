@@ -26,7 +26,7 @@ import (
 var UnifiedDelay = atomic.NewBool(false)
 
 const (
-	defaultHistoriesNum = 10
+	defaultHistoriesNum = 4
 )
 
 type internalProxyState struct {
@@ -243,16 +243,11 @@ func (p *Proxy) URLTest(ctx context.Context, url string, expectedStatus utils.In
 		DialContext: func(context.Context, string, string) (net.Conn, error) {
 			return instance, nil
 		},
-		// from http.DefaultTransport
-		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
-		TLSClientConfig:       ca.GetGlobalTLSConfig(&tls.Config{}),
+		TLSClientConfig: ca.GetGlobalTLSConfig(&tls.Config{}),
 	}
 
 	client := http.Client{
-		Timeout:   30 * time.Second,
+		Timeout:   5 * time.Second,
 		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
@@ -286,7 +281,7 @@ func (p *Proxy) URLTest(ctx context.Context, url string, expectedStatus utils.In
 		}
 	}
 
-	satisfied = resp != nil && (expectedStatus == nil || expectedStatus.Check(uint16(resp.StatusCode)))
+	satisfied = expectedStatus == nil || expectedStatus.Check(uint16(resp.StatusCode))
 	t = uint16(time.Since(start) / time.Millisecond)
 	return
 }
