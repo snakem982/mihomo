@@ -7,7 +7,7 @@ require (
 	github.com/bahlo/generic-list-go v0.2.0
 	github.com/coreos/go-iptables v0.8.0
 	github.com/dlclark/regexp2 v1.11.4
-	github.com/enfein/mieru/v3 v3.6.0
+	github.com/enfein/mieru/v3 v3.8.2
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/go-chi/render v1.0.3
 	github.com/gobwas/ws v1.4.0
@@ -120,5 +120,3 @@ require (
 )
 
 replace github.com/sagernet/sing => github.com/metacubex/sing v0.0.0-20241121030428-33b6ebc52000
-
-replace github.com/enfein/mieru/v3 => github.com/snakem982/mieru/v3 v3.8.2-moshen

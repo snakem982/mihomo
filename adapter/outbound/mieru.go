@@ -3,9 +3,7 @@ package outbound
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"net"
-	"net/netip"
 	"runtime"
 	"strconv"
 	"sync"
@@ -15,7 +13,6 @@ import (
 	mierupb "github.com/enfein/mieru/v3/pkg/appctl/appctlpb"
 	"github.com/metacubex/mihomo/component/dialer"
 	"github.com/metacubex/mihomo/component/proxydialer"
-	"github.com/metacubex/mihomo/component/resolver"
 	C "github.com/metacubex/mihomo/constant"
 	"google.golang.org/protobuf/proto"
 )
@@ -38,56 +35,17 @@ type MieruOption struct {
 	Password  string `proxy:"password"`
 }
 
-type MieruResolver struct {
-	resolver.Resolver
-}
-
-// StreamConnContext implements C.ProxyAdapter
-func (m *Mieru) StreamConnContext(ctx context.Context, c net.Conn, metadata *C.Metadata) (net.Conn, error) {
-	if err := m.ensureClientIsRunning(); err != nil {
-		return nil, err
-	}
-
-	addr := metadataToMieruNetAddrSpec(metadata)
-	return m.client.DialContextWithConn(ctx, c, addr)
-}
-
 // DialContext implements C.ProxyAdapter
 func (m *Mieru) DialContext(ctx context.Context, metadata *C.Metadata, opts ...dialer.Option) (C.Conn, error) {
-	return m.DialContextWithDialer(ctx, dialer.NewDialer(m.Base.DialOptions(opts...)...), metadata)
-}
-
-// DialContextWithDialer implements C.ProxyAdapter
-func (m *Mieru) DialContextWithDialer(ctx context.Context, dialer C.Dialer, metadata *C.Metadata) (C.Conn, error) {
-	var err error
-	if len(m.option.DialerProxy) > 0 {
-		dialer, err = proxydialer.NewByName(m.option.DialerProxy, dialer)
-		if err != nil {
-			return nil, err
-		}
-	}
-	network, address, err := m.pickOneServerEndpoint()
-	if err != nil {
+	if err := m.ensureClientIsRunning(opts...); err != nil {
 		return nil, err
 	}
-	c, err := dialer.DialContext(ctx, network, address)
+	addr := metadataToMieruNetAddrSpec(metadata)
+	c, err := m.client.DialContext(ctx, addr)
 	if err != nil {
-		return nil, fmt.Errorf("%s connect error: %w", address, err)
+		return nil, fmt.Errorf("dial to %s failed: %w", addr, err)
 	}
-	defer func(c net.Conn) {
-		safeConnClose(c, err)
-	}(c)
-	c, err = m.StreamConnContext(ctx, c, metadata)
-	if err != nil {
-		return nil, err
-	}
-
 	return NewConn(c, m), nil
-}
-
-// SupportWithDialer implements C.ProxyAdapter
-func (m *Mieru) SupportWithDialer() C.NetWork {
-	return C.TCP
 }
 
 // ProxyInfo implements C.ProxyAdapter
@@ -97,7 +55,7 @@ func (m *Mieru) ProxyInfo() C.ProxyInfo {
 	return info
 }
 
-func (m *Mieru) ensureClientIsRunning() error {
+func (m *Mieru) ensureClientIsRunning(opts ...dialer.Option) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -105,67 +63,28 @@ func (m *Mieru) ensureClientIsRunning() error {
 		return nil
 	}
 
+	// Create a dialer and add it to the client config, before starting the client.
+	var dialer C.Dialer = dialer.NewDialer(m.Base.DialOptions(opts...)...)
+	var err error
+	if len(m.option.DialerProxy) > 0 {
+		dialer, err = proxydialer.NewByName(m.option.DialerProxy, dialer)
+		if err != nil {
+			return err
+		}
+	}
 	config, err := m.client.Load()
 	if err != nil {
 		return err
 	}
-	serverDomainName := config.Profile.GetServers()[0].GetDomainName()
-	if serverDomainName != "" && config.Resolver == nil {
-		if resolver.ProxyServerHostResolver == nil {
-			return fmt.Errorf("mieru server is a domain name %q but DNS is not enabled", serverDomainName)
-		}
-		config.Resolver = MieruResolver{Resolver: resolver.ProxyServerHostResolver}
-		if err := m.client.Store(config); err != nil {
-			return err
-		}
+	config.Dialer = dialer
+	if err := m.client.Store(config); err != nil {
+		return err
 	}
 
 	if err := m.client.Start(); err != nil {
 		return fmt.Errorf("failed to start mieru client: %w", err)
 	}
 	return nil
-}
-
-func (m *Mieru) pickOneServerEndpoint() (network, address string, err error) {
-	if m.option.Transport == "TCP" {
-		network = "tcp"
-	} else {
-		err = fmt.Errorf("transport %s is invalid", m.option.Transport)
-		return
-	}
-	if m.option.Port != 0 {
-		address = net.JoinHostPort(m.option.Server, strconv.Itoa(m.option.Port))
-	} else {
-		var beginPort, endPort int
-		beginPort, endPort, err = beginAndEndPortFromPortRange(m.option.PortRange)
-		if err != nil {
-			return
-		}
-		randomPort := beginPort + rand.Intn(endPort-beginPort+1)
-		address = net.JoinHostPort(m.option.Server, strconv.Itoa(randomPort))
-	}
-	return
-}
-
-func (mr MieruResolver) LookupIP(ctx context.Context, network, host string) ([]net.IP, error) {
-	var netIPs []netip.Addr
-	var err error
-	if network == "ip4" {
-		netIPs, err = mr.Resolver.LookupIPv4(ctx, host)
-	} else if network == "ip6" {
-		netIPs, err = mr.Resolver.LookupIPv6(ctx, host)
-	} else {
-		netIPs, err = mr.Resolver.LookupIP(ctx, host)
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	ips := make([]net.IP, len(netIPs))
-	for i := 0; i < len(netIPs); i++ {
-		ips[i] = netIPs[i].AsSlice()
-	}
-	return ips, nil
 }
 
 func NewMieru(option MieruOption) (*Mieru, error) {
@@ -294,10 +213,6 @@ func buildMieruClientConfig(option MieruOption) (*mieruclient.ClientConfig, erro
 				Password: proto.String(option.Password),
 			},
 			Servers: []*mierupb.ServerEndpoint{server},
-			Multiplexing: &mierupb.MultiplexingConfig{
-				// Multiplexing doesn't work well with connection tracking.
-				Level: mierupb.MultiplexingLevel_MULTIPLEXING_OFF.Enum(),
-			},
 		},
 	}, nil
 }
