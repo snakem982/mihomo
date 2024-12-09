@@ -41,8 +41,8 @@ const (
 	Hysteria2
 	WireGuard
 	Tuic
-	Mieru
 	Ssh
+	Mieru
 )
 
 const (
@@ -229,7 +229,6 @@ func (at AdapterType) String() string {
 		return "Ssh"
 	case Mieru:
 		return "Mieru"
-
 	case Relay:
 		return "Relay"
 	case Selector:
