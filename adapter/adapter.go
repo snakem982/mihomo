@@ -285,6 +285,7 @@ func (p *Proxy) URLTest(ctx context.Context, url string, expectedStatus utils.In
 	t = uint16(time.Since(start) / time.Millisecond)
 	return
 }
+
 func NewProxy(adapter C.ProxyAdapter) *Proxy {
 	return &Proxy{
 		ProxyAdapter: adapter,
@@ -322,4 +323,52 @@ func urlToMetadata(rawURL string) (addr C.Metadata, err error) {
 		DstPort: uint16(uintPort),
 	}
 	return
+}
+
+// URLTestByPandora get the delay for the specified URL
+// implements C.Proxy
+func (p *Proxy) URLTestByPandora(ctx context.Context, url string, expectedStatus utils.IntRanges[uint16]) bool {
+
+	addr, err := urlToMetadata(url)
+	if err != nil {
+		return false
+	}
+
+	instance, err := p.DialContext(ctx, &addr)
+	if err != nil {
+		return false
+	}
+	defer func() {
+		_ = instance.Close()
+	}()
+
+	req, err := http.NewRequest(http.MethodHead, url, nil)
+	if err != nil {
+		return false
+	}
+	req = req.WithContext(ctx)
+
+	transport := &http.Transport{
+		DialContext: func(context.Context, string, string) (net.Conn, error) {
+			return instance, nil
+		},
+		TLSClientConfig: ca.GetGlobalTLSConfig(&tls.Config{}),
+	}
+
+	client := http.Client{
+		Timeout:   3 * time.Second,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	defer client.CloseIdleConnections()
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	_ = resp.Body.Close()
+
+	return expectedStatus.Check(uint16(resp.StatusCode))
 }
