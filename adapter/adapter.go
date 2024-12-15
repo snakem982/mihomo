@@ -247,7 +247,7 @@ func (p *Proxy) URLTest(ctx context.Context, url string, expectedStatus utils.In
 	}
 
 	client := http.Client{
-		Timeout:   5 * time.Second,
+		Timeout:   3 * time.Second,
 		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
