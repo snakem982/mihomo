@@ -116,7 +116,7 @@ func router(isDebug bool, secret string, dohServer string, cors Cors) *chi.Mux {
 	return r
 }
 
-func StartByPandora(secret string) (serverAddr string) {
+func StartByPandora(isDebug bool, secret string) (serverAddr string) {
 	l, err := inbound.Listen("tcp", "127.0.0.1:9966")
 	if err != nil {
 		log.Errorln("External controller listen error: %s", err)
@@ -130,7 +130,7 @@ func StartByPandora(secret string) (serverAddr string) {
 	log.Infoln("Pandora-Box Restful Api Listening At: %s", serverAddr)
 
 	go func() {
-		if err = http.Serve(l, router(false, secret, "", Cors{})); err != nil {
+		if err = http.Serve(l, router(isDebug, secret, "", Cors{})); err != nil {
 			log.Errorln("External controller serve error: %s", err)
 		}
 	}()

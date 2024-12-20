@@ -334,7 +334,7 @@ func (p *Proxy) URLTestByPandora(ctx context.Context, url string, expectedStatus
 		return false
 	}
 
-	instance, err := p.DialContext(ctx, &addr)
+	instance, err := p.ProxyAdapter.DialContext(ctx, &addr)
 	if err != nil {
 		return false
 	}
@@ -352,11 +352,11 @@ func (p *Proxy) URLTestByPandora(ctx context.Context, url string, expectedStatus
 		DialContext: func(context.Context, string, string) (net.Conn, error) {
 			return instance, nil
 		},
-		TLSClientConfig: ca.GetGlobalTLSConfig(&tls.Config{}),
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
 
 	client := http.Client{
-		Timeout:   3 * time.Second,
+		Timeout:   5 * time.Second,
 		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
@@ -364,11 +364,12 @@ func (p *Proxy) URLTestByPandora(ctx context.Context, url string, expectedStatus
 	}
 	defer client.CloseIdleConnections()
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return false
+	resp, _ := client.Do(req)
+	if resp != nil {
+		code := uint16(resp.StatusCode)
+		_ = resp.Body.Close()
+		return expectedStatus.Check(code)
 	}
-	_ = resp.Body.Close()
 
-	return expectedStatus.Check(uint16(resp.StatusCode))
+	return false
 }
