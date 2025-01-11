@@ -71,6 +71,15 @@ func ConvertsSingBox(buf []byte) ([]map[string]any, error) {
 				hysteria2["up"] = outbound.UpMbps
 			}
 
+			// Since sing-box 1.11.0
+			serverPorts := outbound.ServerPorts
+			if len(serverPorts) > 0 {
+				for i, str := range serverPorts {
+					serverPorts[i] = strings.Replace(str, ":", "-", 1)
+				}
+				hysteria2["ports"] = strings.Join(serverPorts, ",")
+			}
+
 			proxies = append(proxies, hysteria2)
 
 		case "tuic":
@@ -251,6 +260,7 @@ type SingBoxOption struct {
 	TcpFastOpen          bool                      `json:"tcp_fast_open,omitempty"`
 	TcpMultiPath         bool                      `json:"tcp_multi_path,omitempty"`
 	Visible              []string                  `json:"-"`
+	ServerPorts          []string                  `json:"server_ports,omitempty"`
 }
 
 type SingUdpOverTcp struct {
