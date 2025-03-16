@@ -213,10 +213,16 @@ func UpdateRules(newRules []C.Rule, newSubRule map[string][]C.Rule, rp map[strin
 
 // Proxies return all proxies
 func Proxies() map[string]C.Proxy {
+	configMux.RLock()
+	defer configMux.RUnlock()
+
 	return proxies
 }
 
 func ProxiesWithProviders() map[string]C.Proxy {
+	configMux.RLock()
+	defer configMux.RUnlock()
+
 	allProxies := make(map[string]C.Proxy)
 	for name, proxy := range proxies {
 		allProxies[name] = proxy
@@ -232,6 +238,9 @@ func ProxiesWithProviders() map[string]C.Proxy {
 
 // Providers return all compatible providers
 func Providers() map[string]provider.ProxyProvider {
+	configMux.RLock()
+	defer configMux.RUnlock()
+
 	return providers
 }
 
