@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/subtle"
 	"encoding/json"
+	"github.com/metacubex/mihomo/tunnel"
 	"net"
 	"net/http"
 	"runtime/debug"
@@ -97,6 +98,7 @@ func router(isDebug bool, secret string, dohServer string, cors Cors) *chi.Mux {
 		r.Get("/traffic", traffic)
 		r.Get("/memory", memory)
 		r.Get("/version", version)
+		r.Get("/wait", waitRunStatus)
 		r.Mount("/configs", configRouter())
 		r.Mount("/proxies", proxyRouter())
 		r.Mount("/group", groupRouter())
@@ -385,4 +387,11 @@ func getLogs(w http.ResponseWriter, r *http.Request) {
 
 func version(w http.ResponseWriter, r *http.Request) {
 	render.JSON(w, r, render.M{"meta": C.Meta, "version": C.Version})
+}
+
+func waitRunStatus(w http.ResponseWriter, r *http.Request) {
+	for tunnel.Status() != tunnel.Running {
+		time.Sleep(200 * time.Millisecond)
+	}
+	render.NoContent(w, r)
 }
