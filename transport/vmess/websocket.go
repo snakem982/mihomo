@@ -247,8 +247,8 @@ func (wsedc *websocketWithEarlyDataConn) Read(b []byte) (int, error) {
 func (wsedc *websocketWithEarlyDataConn) Close() error {
 	wsedc.closed = true
 	wsedc.cancel()
-	if wsedc.Conn == nil {
-		return nil
+	if wsedc.Conn == nil { // is dialing or not dialed
+		return wsedc.underlay.Close()
 	}
 	return wsedc.Conn.Close()
 }
@@ -326,7 +326,7 @@ func streamWebsocketWithEarlyDataConn(conn net.Conn, c *WebsocketConfig) (net.Co
 	return N.NewDeadlineConn(conn), nil
 }
 
-func streamWebsocketConn(ctx context.Context, conn net.Conn, c *WebsocketConfig, earlyData *bytes.Buffer) (net.Conn, error) {
+func streamWebsocketConn(ctx context.Context, conn net.Conn, c *WebsocketConfig, earlyData *bytes.Buffer) (_ net.Conn, err error) {
 	u, err := url.Parse(c.Path)
 	if err != nil {
 		return nil, fmt.Errorf("parse url %s error: %w", c.Path, err)
