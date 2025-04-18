@@ -56,14 +56,16 @@ type Config struct {
 type Cors struct {
 	AllowOrigins        []string
 	AllowPrivateNetwork bool
+	AllowCredentials    bool
 }
 
 func (c Cors) Apply(r chi.Router) {
 	r.Use(cors.New(cors.Options{
 		AllowedOrigins:      c.AllowOrigins,
-		AllowedMethods:      []string{"GET", "POST", "PUT", "PATCH", "DELETE"},
+		AllowedMethods:      []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:      []string{"Content-Type", "Authorization"},
 		AllowPrivateNetwork: c.AllowPrivateNetwork,
+		AllowCredentials:    c.AllowCredentials,
 		MaxAge:              300,
 	}).Handler)
 }
