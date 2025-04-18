@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/subtle"
 	"encoding/json"
+	"fmt"
 	"github.com/metacubex/mihomo/tunnel"
 	"net"
 	"net/http"
@@ -133,6 +134,28 @@ func StartByPandora(isDebug bool, secret string) (serverAddr string) {
 
 	go func() {
 		if err = http.Serve(l, router(isDebug, secret, "", Cors{})); err != nil {
+			log.Errorln("External controller serve error: %s", err)
+		}
+	}()
+
+	return
+}
+
+func StartByPandoraBox(host string, port int, secret string, cors Cors) (serverAddr string) {
+	l, err := inbound.Listen("tcp", fmt.Sprintf("%s:%d", host, port))
+	if err != nil {
+		log.Errorln("External controller listen error: %s", err)
+
+		l, err = inbound.Listen("tcp", host+":0")
+		if err != nil {
+			panic(err)
+		}
+	}
+	serverAddr = l.Addr().String()
+	log.Infoln("Pandora-Box Restful Api Listening At: %s", serverAddr)
+
+	go func() {
+		if err = http.Serve(l, router(false, secret, "", cors)); err != nil {
 			log.Errorln("External controller serve error: %s", err)
 		}
 	}()
