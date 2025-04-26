@@ -354,10 +354,14 @@ func streamWebsocketConn(ctx context.Context, conn net.Conn, c *WebsocketConfig,
 			config.ServerName = uri.Host
 		}
 
-		if len(c.ClientFingerprint) != 0 {
-			if fingerprint, exists := tlsC.GetFingerprint(c.ClientFingerprint); exists {
-				utlsConn := tlsC.UClient(conn, config, fingerprint)
-				if err = utlsConn.BuildWebsocketHandshakeState(); err != nil {
+		clientFingerprint := c.ClientFingerprint
+		if tlsC.HaveGlobalFingerprint() && len(clientFingerprint) == 0 {
+			clientFingerprint = tlsC.GetGlobalFingerprint()
+		}
+		if len(clientFingerprint) != 0 {
+			if fingerprint, exists := tlsC.GetFingerprint(clientFingerprint); exists {
+				utlsConn := tlsC.UClient(conn, tlsC.UConfig(config), fingerprint)
+				if err = tlsC.BuildWebsocketHandshakeState(utlsConn); err != nil {
 					return nil, fmt.Errorf("parse url %s error: %w", c.Path, err)
 				}
 				conn = utlsConn

@@ -56,7 +56,6 @@ type Config struct {
 type Cors struct {
 	AllowOrigins        []string
 	AllowPrivateNetwork bool
-	AllowCredentials    bool
 }
 
 func (c Cors) Apply(r chi.Router) {
@@ -65,7 +64,6 @@ func (c Cors) Apply(r chi.Router) {
 		AllowedMethods:      []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:      []string{"Content-Type", "Authorization"},
 		AllowPrivateNetwork: c.AllowPrivateNetwork,
-		AllowCredentials:    c.AllowCredentials,
 		MaxAge:              300,
 	}).Handler)
 }
@@ -95,6 +93,7 @@ func router(isDebug bool, secret string, dohServer string, cors Cors) *chi.Mux {
 	r.Group(func(r chi.Router) {
 		if secret != "" {
 			r.Use(authentication(secret))
+			r.Get("/"+secret, ok)
 		}
 		r.Get("/", hello)
 		r.Get("/logs", getLogs)
@@ -175,7 +174,7 @@ func authentication(secret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		fn := func(w http.ResponseWriter, r *http.Request) {
 
-			if r.URL.Path == "/Pandora-Box-Download" {
+			if r.URL.Path == "/Pandora-Box-Download" || r.URL.Path == "/"+secret {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -210,6 +209,10 @@ func authentication(secret string) func(http.Handler) http.Handler {
 
 func hello(w http.ResponseWriter, r *http.Request) {
 	render.JSON(w, r, render.M{"hello": "mihomo"})
+}
+
+func ok(w http.ResponseWriter, r *http.Request) {
+	render.PlainText(w, r, "pandora-box is ok")
 }
 
 func traffic(w http.ResponseWriter, r *http.Request) {
@@ -411,7 +414,7 @@ func getLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 func version(w http.ResponseWriter, r *http.Request) {
-	render.JSON(w, r, render.M{"meta": C.Meta, "version": C.Version})
+	render.JSON(w, r, render.M{"meta": true, "version": C.Version})
 }
 
 func waitRunStatus(w http.ResponseWriter, r *http.Request) {
