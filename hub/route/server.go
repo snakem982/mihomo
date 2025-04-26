@@ -3,20 +3,17 @@ package route
 import (
 	"bytes"
 	"crypto/subtle"
-	"crypto/tls"
 	"encoding/json"
+	"fmt"
+	"github.com/metacubex/mihomo/tunnel"
 	"net"
 	"net/http"
-	"os"
-	"path/filepath"
 	"runtime/debug"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/metacubex/mihomo/adapter/inbound"
 	"github.com/metacubex/mihomo/common/utils"
-	"github.com/metacubex/mihomo/component/ca"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/log"
 	"github.com/metacubex/mihomo/tunnel/statistic"
@@ -41,7 +38,7 @@ var (
 )
 
 func SetEmbedMode(embed bool) {
-	embedMode = embed
+	log.Infoln("set embed mode:", embed)
 }
 
 type Traffic struct {
@@ -75,7 +72,7 @@ type Cors struct {
 func (c Cors) Apply(r chi.Router) {
 	r.Use(cors.New(cors.Options{
 		AllowedOrigins:      c.AllowOrigins,
-		AllowedMethods:      []string{"GET", "POST", "PUT", "PATCH", "DELETE"},
+		AllowedMethods:      []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:      []string{"Content-Type", "Authorization"},
 		AllowPrivateNetwork: c.AllowPrivateNetwork,
 		MaxAge:              300,
@@ -83,16 +80,11 @@ func (c Cors) Apply(r chi.Router) {
 }
 
 func ReCreateServer(cfg *Config) {
-	go start(cfg)
-	go startTLS(cfg)
-	go startUnix(cfg)
-	if inbound.SupportNamedPipe {
-		go startPipe(cfg)
-	}
+	log.Infoln("ReCreateServer is ok")
 }
 
 func SetUIPath(path string) {
-	uiPath = C.Path.Resolve(path)
+	log.Infoln("SetUIPath is ok")
 }
 
 func router(isDebug bool, secret string, dohServer string, cors Cors) *chi.Mux {
@@ -112,12 +104,14 @@ func router(isDebug bool, secret string, dohServer string, cors Cors) *chi.Mux {
 	r.Group(func(r chi.Router) {
 		if secret != "" {
 			r.Use(authentication(secret))
+			r.Get("/"+secret, ok)
 		}
 		r.Get("/", hello)
 		r.Get("/logs", getLogs)
 		r.Get("/traffic", traffic)
 		r.Get("/memory", memory)
 		r.Get("/version", version)
+		r.Get("/wait", waitRunStatus)
 		r.Mount("/configs", configRouter())
 		r.Mount("/proxies", proxyRouter())
 		r.Mount("/group", groupRouter())
@@ -127,23 +121,9 @@ func router(isDebug bool, secret string, dohServer string, cors Cors) *chi.Mux {
 		r.Mount("/providers/rules", ruleProviderRouter())
 		r.Mount("/cache", cacheRouter())
 		r.Mount("/dns", dnsRouter())
-		if !embedMode { // disallow restart in embed mode
-			r.Mount("/restart", restartRouter())
-		}
-		r.Mount("/upgrade", upgradeRouter())
 		addExternalRouters(r)
-
 	})
 
-	if uiPath != "" {
-		r.Group(func(r chi.Router) {
-			fs := http.StripPrefix("/ui", http.FileServer(http.Dir(uiPath)))
-			r.Get("/ui", http.RedirectHandler("/ui/", http.StatusTemporaryRedirect).ServeHTTP)
-			r.Get("/ui/*", func(w http.ResponseWriter, r *http.Request) {
-				fs.ServeHTTP(w, r)
-			})
-		})
-	}
 	if len(dohServer) > 0 && dohServer[0] == '/' {
 		r.Mount(dohServer, dohRouter())
 	}
@@ -151,142 +131,48 @@ func router(isDebug bool, secret string, dohServer string, cors Cors) *chi.Mux {
 	return r
 }
 
-func start(cfg *Config) {
-	// first stop existing server
-	if httpServer != nil {
-		_ = httpServer.Close()
-		httpServer = nil
-	}
+func StartByPandora(isDebug bool, secret string) (serverAddr string) {
+	l, err := inbound.Listen("tcp", "127.0.0.1:9966")
+	if err != nil {
+		log.Errorln("External controller listen error: %s", err)
 
-	// handle addr
-	if len(cfg.Addr) > 0 {
-		l, err := inbound.Listen("tcp", cfg.Addr)
+		l, err = inbound.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
-			log.Errorln("External controller listen error: %s", err)
-			return
+			panic(err)
 		}
-		log.Infoln("RESTful API listening at: %s", l.Addr().String())
+	}
+	serverAddr = l.Addr().String()
+	log.Infoln("Pandora-Box Restful Api Listening At: %s", serverAddr)
 
-		server := &http.Server{
-			Handler: router(cfg.IsDebug, cfg.Secret, cfg.DohServer, cfg.Cors),
-		}
-		httpServer = server
-		if err = server.Serve(l); err != nil {
+	go func() {
+		if err = http.Serve(l, router(isDebug, secret, "", Cors{})); err != nil {
 			log.Errorln("External controller serve error: %s", err)
 		}
-	}
+	}()
+
+	return
 }
 
-func startTLS(cfg *Config) {
-	// first stop existing server
-	if tlsServer != nil {
-		_ = tlsServer.Close()
-		tlsServer = nil
-	}
+func StartByPandoraBox(host string, port int, secret string, cors Cors) (serverAddr string) {
+	l, err := inbound.Listen("tcp", fmt.Sprintf("%s:%d", host, port))
+	if err != nil {
+		log.Errorln("External controller listen error: %s", err)
 
-	// handle tlsAddr
-	if len(cfg.TLSAddr) > 0 {
-		c, err := ca.LoadTLSKeyPair(cfg.Certificate, cfg.PrivateKey, C.Path)
+		l, err = inbound.Listen("tcp", host+":0")
 		if err != nil {
-			log.Errorln("External controller tls listen error: %s", err)
-			return
-		}
-
-		l, err := inbound.Listen("tcp", cfg.TLSAddr)
-		if err != nil {
-			log.Errorln("External controller tls listen error: %s", err)
-			return
-		}
-
-		log.Infoln("RESTful API tls listening at: %s", l.Addr().String())
-		server := &http.Server{
-			Handler: router(cfg.IsDebug, cfg.Secret, cfg.DohServer, cfg.Cors),
-			TLSConfig: &tls.Config{
-				Certificates: []tls.Certificate{c},
-			},
-		}
-		tlsServer = server
-		if err = server.ServeTLS(l, "", ""); err != nil {
-			log.Errorln("External controller tls serve error: %s", err)
+			panic(err)
 		}
 	}
-}
+	serverAddr = l.Addr().String()
+	log.Infoln("Pandora-Box Restful Api Listening At: %s", serverAddr)
 
-func startUnix(cfg *Config) {
-	// first stop existing server
-	if unixServer != nil {
-		_ = unixServer.Close()
-		unixServer = nil
-	}
-
-	// handle addr
-	if len(cfg.UnixAddr) > 0 {
-		addr := C.Path.Resolve(cfg.UnixAddr)
-
-		dir := filepath.Dir(addr)
-		if _, err := os.Stat(dir); os.IsNotExist(err) {
-			if err := os.MkdirAll(dir, 0o755); err != nil {
-				log.Errorln("External controller unix listen error: %s", err)
-				return
-			}
+	go func() {
+		if err = http.Serve(l, router(false, secret, "", cors)); err != nil {
+			log.Errorln("External controller serve error: %s", err)
 		}
+	}()
 
-		// https://devblogs.microsoft.com/commandline/af_unix-comes-to-windows/
-		//
-		// Note: As mentioned above in the ‘security’ section, when a socket binds a socket to a valid pathname address,
-		// a socket file is created within the filesystem. On Linux, the application is expected to unlink
-		// (see the notes section in the man page for AF_UNIX) before any other socket can be bound to the same address.
-		// The same applies to Windows unix sockets, except that, DeleteFile (or any other file delete API)
-		// should be used to delete the socket file prior to calling bind with the same path.
-		_ = syscall.Unlink(addr)
-
-		l, err := inbound.Listen("unix", addr)
-		if err != nil {
-			log.Errorln("External controller unix listen error: %s", err)
-			return
-		}
-		_ = os.Chmod(addr, 0o666)
-		log.Infoln("RESTful API unix listening at: %s", l.Addr().String())
-
-		server := &http.Server{
-			Handler: router(cfg.IsDebug, "", cfg.DohServer, cfg.Cors),
-		}
-		unixServer = server
-		if err = server.Serve(l); err != nil {
-			log.Errorln("External controller unix serve error: %s", err)
-		}
-	}
-}
-
-func startPipe(cfg *Config) {
-	// first stop existing server
-	if pipeServer != nil {
-		_ = pipeServer.Close()
-		pipeServer = nil
-	}
-
-	// handle addr
-	if len(cfg.PipeAddr) > 0 {
-		if !strings.HasPrefix(cfg.PipeAddr, "\\\\.\\pipe\\") { // windows namedpipe must start with "\\.\pipe\"
-			log.Errorln("External controller pipe listen error: windows namedpipe must start with \"\\\\.\\pipe\\\"")
-			return
-		}
-
-		l, err := inbound.ListenNamedPipe(cfg.PipeAddr)
-		if err != nil {
-			log.Errorln("External controller pipe listen error: %s", err)
-			return
-		}
-		log.Infoln("RESTful API pipe listening at: %s", l.Addr().String())
-
-		server := &http.Server{
-			Handler: router(cfg.IsDebug, "", cfg.DohServer, cfg.Cors),
-		}
-		pipeServer = server
-		if err = server.Serve(l); err != nil {
-			log.Errorln("External controller pipe serve error: %s", err)
-		}
-	}
+	return
 }
 
 func safeEuqal(a, b string) bool {
@@ -298,6 +184,12 @@ func safeEuqal(a, b string) bool {
 func authentication(secret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		fn := func(w http.ResponseWriter, r *http.Request) {
+
+			if r.URL.Path == "/Pandora-Box-Download" || r.URL.Path == "/"+secret {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			// Browser websocket not support custom header
 			if r.Header.Get("Upgrade") == "websocket" && r.URL.Query().Get("token") != "" {
 				token := r.URL.Query().Get("token")
@@ -328,6 +220,10 @@ func authentication(secret string) func(http.Handler) http.Handler {
 
 func hello(w http.ResponseWriter, r *http.Request) {
 	render.JSON(w, r, render.M{"hello": "mihomo"})
+}
+
+func ok(w http.ResponseWriter, r *http.Request) {
+	render.PlainText(w, r, "pandora-box is ok")
 }
 
 func traffic(w http.ResponseWriter, r *http.Request) {
@@ -529,5 +425,12 @@ func getLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 func version(w http.ResponseWriter, r *http.Request) {
-	render.JSON(w, r, render.M{"meta": C.Meta, "version": C.Version})
+	render.JSON(w, r, render.M{"meta": true, "version": C.Version})
+}
+
+func waitRunStatus(w http.ResponseWriter, r *http.Request) {
+	for tunnel.Status() != tunnel.Running {
+		time.Sleep(200 * time.Millisecond)
+	}
+	render.NoContent(w, r)
 }
