@@ -24,7 +24,7 @@ import (
 	"github.com/metacubex/sing-quic/hysteria2"
 
 	"github.com/metacubex/quic-go"
-	E "github.com/sagernet/sing/common/exceptions"
+	E "github.com/metacubex/sing/common/exceptions"
 )
 
 type Listener struct {
@@ -128,6 +128,7 @@ func New(config LC.Hysteria2Server, tunnel C.Tunnel, additions ...inbound.Additi
 		TLSConfig:             tlsC.UConfig(tlsConfig),
 		QUICConfig:            quicConfig,
 		IgnoreClientBandwidth: config.IgnoreClientBandwidth,
+		UDPTimeout:            sing.UDPTimeout,
 		Handler:               h,
 		MasqueradeHandler:     masqueradeHandler,
 		CWND:                  config.CWND,
