@@ -195,6 +195,9 @@ func NatTable() C.NatTable {
 
 // Rules return all rules
 func Rules() []C.Rule {
+	configMux.RLock()
+	defer configMux.RUnlock()
+
 	return rules
 }
 
