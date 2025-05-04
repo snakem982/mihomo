@@ -39,7 +39,7 @@ require (
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/gobwas/ws v1.4.0 // indirect
-	github.com/gofrs/uuid/v5 v5.3.1 // indirect
+	github.com/gofrs/uuid/v5 v5.3.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
@@ -90,7 +90,7 @@ require (
 	github.com/sagernet/tfo-go v0.0.0-20230816093905-5a5c285d44a6 // indirect
 	github.com/sagernet/utls v0.0.0-20230309024959-6732c2ab36f2 // indirect
 	github.com/sagernet/wireguard-go v0.0.0-20230807125731-5d4a7ef2dc5f // indirect
-	github.com/samber/lo v1.49.1 // indirect
+	github.com/samber/lo v1.50.0 // indirect
 	github.com/scjalliance/comshim v0.0.0-20230315213746-5e51f40bd3b9 // indirect
 	github.com/shirou/gopsutil/v3 v3.23.10 // indirect
 	github.com/shoenig/go-m1cpu v0.1.6 // indirect
