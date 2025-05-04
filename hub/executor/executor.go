@@ -116,7 +116,6 @@ func ApplyConfig(cfg *config.Config, force bool) {
 	loadProxyProvider(cfg.Providers)
 	updateProfile(cfg)
 	loadRuleProvider(cfg.RuleProviders)
-	runtime.GC()
 	tunnel.OnRunning()
 	hcCompatibleProvider(cfg.Providers)
 	updateUpdater(cfg)
