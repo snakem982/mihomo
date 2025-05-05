@@ -3,6 +3,7 @@ package route
 import (
 	"github.com/metacubex/mihomo/constant"
 	"net/http"
+	"time"
 
 	"github.com/metacubex/mihomo/tunnel"
 
@@ -24,8 +25,12 @@ type Rule struct {
 }
 
 func getRules(w http.ResponseWriter, r *http.Request) {
+	for tunnel.Status() != tunnel.Running {
+		time.Sleep(100 * time.Millisecond)
+	}
+
 	rawRules := tunnel.Rules()
-	rules := []Rule{}
+	var rules []Rule
 	for _, rule := range rawRules {
 		r := Rule{
 			Type:    rule.RuleType().String(),
@@ -37,7 +42,6 @@ func getRules(w http.ResponseWriter, r *http.Request) {
 			r.Size = rule.(constant.RuleGroup).GetRecodeSize()
 		}
 		rules = append(rules, r)
-
 	}
 
 	render.JSON(w, r, render.M{
