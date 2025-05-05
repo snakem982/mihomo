@@ -83,11 +83,8 @@ func ParseWithBytes(buf []byte) (*config.Config, error) {
 
 // ApplyConfig dispatch configure to all parts without ExternalController
 func ApplyConfig(cfg *config.Config, force bool) {
-	mux.Lock()
-	defer mux.Unlock()
-	log.SetLevel(cfg.General.LogLevel)
-
 	tunnel.OnSuspend()
+	log.SetLevel(cfg.General.LogLevel)
 
 	ca.ResetCertificate()
 	for _, c := range cfg.TLS.CustomTrustCert {
@@ -116,7 +113,9 @@ func ApplyConfig(cfg *config.Config, force bool) {
 	loadProxyProvider(cfg.Providers)
 	updateProfile(cfg)
 	loadRuleProvider(cfg.RuleProviders)
+
 	tunnel.OnRunning()
+
 	hcCompatibleProvider(cfg.Providers)
 	updateUpdater(cfg)
 
@@ -130,8 +129,8 @@ func initInnerTcp() {
 func GetGeneral() *config.General {
 	ports := listener.GetPorts()
 	var authenticator []string
-	if auth := authStore.Default.Authenticator(); auth != nil {
-		authenticator = auth.Users()
+	if a := authStore.Default.Authenticator(); a != nil {
+		authenticator = a.Users()
 	}
 
 	general := &config.General{
@@ -357,18 +356,16 @@ func loadProxyProvider(proxyProviders map[string]provider.ProxyProvider) {
 
 	wg.Wait()
 }
+
 func hcCompatibleProvider(proxyProviders map[string]provider.ProxyProvider) {
-	// limit concurrent size
 	wg := sync.WaitGroup{}
-	ch := make(chan struct{}, concurrentCount)
 	for _, proxyProvider := range proxyProviders {
 		proxyProvider := proxyProvider
 		if proxyProvider.VehicleType() == provider.Compatible {
 			log.Infoln("Start initial Compatible provider %s", proxyProvider.Name())
 			wg.Add(1)
-			ch <- struct{}{}
 			go func() {
-				defer func() { <-ch; wg.Done() }()
+				defer wg.Done()
 				if err := proxyProvider.Initial(); err != nil {
 					log.Errorln("initial Compatible provider %s error: %v", proxyProvider.Name(), err)
 				}

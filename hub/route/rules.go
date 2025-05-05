@@ -2,10 +2,8 @@ package route
 
 import (
 	"github.com/metacubex/mihomo/constant"
-	"net/http"
-	"time"
-
 	"github.com/metacubex/mihomo/tunnel"
+	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/render"
@@ -25,10 +23,6 @@ type Rule struct {
 }
 
 func getRules(w http.ResponseWriter, r *http.Request) {
-	for tunnel.Status() != tunnel.Running {
-		time.Sleep(100 * time.Millisecond)
-	}
-
 	rawRules := tunnel.Rules()
 	var rules []Rule
 	for _, rule := range rawRules {
