@@ -218,7 +218,7 @@ func ResolveIPPrefer6(ctx context.Context, host string) (netip.Addr, error) {
 
 func ResetConnection() {
 	if DefaultResolver != nil {
-		go DefaultResolver.ResetConnection()
+		DefaultResolver.ResetConnection()
 	}
 }
 
