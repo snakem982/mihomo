@@ -289,13 +289,13 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 	if options.AutoRoute || options.AutoDetectInterface { // don't start NetworkUpdateMonitor because netlink banned by google on Android14+
 		networkUpdateMonitor, err = tun.NewNetworkUpdateMonitor(log.SingLogger)
 		if err != nil {
-			err = E.Cause(err, "create NetworkUpdateMonitor")
+			log.Errorln("create NetworkUpdateMonitor error is %v", err)
 			return
 		}
 		l.networkUpdateMonitor = networkUpdateMonitor
 		err = networkUpdateMonitor.Start()
 		if err != nil {
-			err = E.Cause(err, "start NetworkUpdateMonitor")
+			log.Errorln("start NetworkUpdateMonitor error is %v", err)
 			return
 		}
 
@@ -305,7 +305,7 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 		}
 		defaultInterfaceMonitor, err = tun.NewDefaultInterfaceMonitor(networkUpdateMonitor, log.SingLogger, tun.DefaultInterfaceMonitorOptions{InterfaceFinder: interfaceFinder, OverrideAndroidVPN: overrideAndroidVPN})
 		if err != nil {
-			err = E.Cause(err, "create DefaultInterfaceMonitor")
+			log.Errorln("start[0] DefaultInterfaceMonitor error is %v", err)
 			return
 		}
 		l.defaultInterfaceMonitor = defaultInterfaceMonitor
@@ -320,7 +320,7 @@ func New(options LC.Tun, tunnel C.Tunnel, additions ...inbound.Addition) (l *Lis
 		})
 		err = defaultInterfaceMonitor.Start()
 		if err != nil {
-			err = E.Cause(err, "start DefaultInterfaceMonitor")
+			log.Errorln("start[1] DefaultInterfaceMonitor error is %v", err)
 			return
 		}
 
