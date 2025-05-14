@@ -57,6 +57,13 @@ func (bp *baseProvider) Version() uint32 {
 	return bp.version
 }
 
+func (bp *baseProvider) Initial() error {
+	if bp.healthCheck.auto() {
+		go bp.healthCheck.process()
+	}
+	return nil
+}
+
 func (bp *baseProvider) HealthCheck() {
 	bp.healthCheck.check()
 }
@@ -88,7 +95,7 @@ func (bp *baseProvider) RegisterHealthCheckTask(url string, expectedStatus utils
 func (bp *baseProvider) setProxies(proxies []C.Proxy) {
 	bp.proxies = proxies
 	bp.version += 1
-	bp.healthCheck.setProxy(proxies)
+	bp.healthCheck.setProxies(proxies)
 	if bp.healthCheck.auto() {
 		go bp.healthCheck.check()
 	}
@@ -133,6 +140,9 @@ func (pp *proxySetProvider) Update() error {
 }
 
 func (pp *proxySetProvider) Initial() error {
+	if err := pp.baseProvider.Initial(); err != nil {
+		return err
+	}
 	_, err := pp.Fetcher.Initial()
 	if err != nil {
 		return err
@@ -162,10 +172,6 @@ func (pp *proxySetProvider) Close() error {
 }
 
 func NewProxySetProvider(name string, interval time.Duration, payload []map[string]any, parser resource.Parser[[]C.Proxy], vehicle types.Vehicle, hc *HealthCheck) (*ProxySetProvider, error) {
-	if hc.auto() {
-		go hc.process()
-	}
-
 	pd := &proxySetProvider{
 		baseProvider: baseProvider{
 			name:        name,
@@ -185,6 +191,8 @@ func NewProxySetProvider(name string, interval time.Duration, payload []map[stri
 			return nil, err
 		}
 		pd.proxies = proxies
+		// direct call setProxies on hc to avoid starting a health check process immediately, it should be done by Initial()
+		hc.setProxies(proxies)
 	}
 
 	fetcher := resource.NewFetcher[[]C.Proxy](name, interval, vehicle, parser, pd.setProxies)
@@ -234,10 +242,6 @@ func (ip *inlineProvider) VehicleType() types.VehicleType {
 	return types.Inline
 }
 
-func (ip *inlineProvider) Initial() error {
-	return nil
-}
-
 func (ip *inlineProvider) Update() error {
 	// make api update happy
 	ip.updateAt = time.Now()
@@ -245,10 +249,6 @@ func (ip *inlineProvider) Update() error {
 }
 
 func NewInlineProvider(name string, payload []map[string]any, parser resource.Parser[[]C.Proxy], hc *HealthCheck) (*InlineProvider, error) {
-	if hc.auto() {
-		go hc.process()
-	}
-
 	ps := ProxySchema{Proxies: payload}
 	buf, err := yaml.Marshal(ps)
 	if err != nil {
@@ -258,6 +258,8 @@ func NewInlineProvider(name string, payload []map[string]any, parser resource.Pa
 	if err != nil {
 		return nil, err
 	}
+	// direct call setProxies on hc to avoid starting a health check process immediately, it should be done by Initial()
+	hc.setProxies(proxies)
 
 	ip := &inlineProvider{
 		baseProvider: baseProvider{
@@ -301,13 +303,6 @@ func (cp *compatibleProvider) Update() error {
 	return nil
 }
 
-func (cp *compatibleProvider) Initial() error {
-	if cp.healthCheck.interval != 0 && cp.healthCheck.url != "" {
-		cp.HealthCheck()
-	}
-	return nil
-}
-
 func (cp *compatibleProvider) VehicleType() types.VehicleType {
 	return types.Compatible
 }
@@ -315,10 +310,6 @@ func (cp *compatibleProvider) VehicleType() types.VehicleType {
 func NewCompatibleProvider(name string, proxies []C.Proxy, hc *HealthCheck) (*CompatibleProvider, error) {
 	if len(proxies) == 0 {
 		return nil, errors.New("provider need one proxy at least")
-	}
-
-	if hc.auto() {
-		go hc.process()
 	}
 
 	pd := &compatibleProvider{
