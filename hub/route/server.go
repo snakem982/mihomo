@@ -8,12 +8,18 @@ import (
 	"github.com/metacubex/mihomo/tunnel"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/metacubex/mihomo/adapter/inbound"
 	"github.com/metacubex/mihomo/common/utils"
+	"github.com/metacubex/mihomo/component/ca"
+	"github.com/metacubex/mihomo/component/ech"
+	tlsC "github.com/metacubex/mihomo/component/tls"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/log"
 	"github.com/metacubex/mihomo/tunnel/statistic"
@@ -24,6 +30,19 @@ import (
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 	"github.com/sagernet/cors"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
+)
+
+var (
+	uiPath = ""
+
+	httpServer *http.Server
+	tlsServer  *http.Server
+	unixServer *http.Server
+	pipeServer *http.Server
+
+	embedMode = false
 )
 
 func SetEmbedMode(embed bool) {
@@ -48,6 +67,7 @@ type Config struct {
 	Secret      string
 	Certificate string
 	PrivateKey  string
+	EchKey      string
 	DohServer   string
 	IsDebug     bool
 	Cors        Cors
@@ -76,7 +96,7 @@ func SetUIPath(path string) {
 	log.Infoln("SetUIPath is ok")
 }
 
-func router(isDebug bool, secret string, dohServer string, cors Cors) *chi.Mux {
+func router(isDebug bool, secret string, dohServer string, cors Cors) http.Handler {
 	r := chi.NewRouter()
 	cors.Apply(r)
 	if isDebug {
@@ -117,7 +137,8 @@ func router(isDebug bool, secret string, dohServer string, cors Cors) *chi.Mux {
 		r.Mount(dohServer, dohRouter())
 	}
 
-	return r
+	// using h2c.NewHandler to ensure we can work in plain http2, and some tls conn is not *tls.Conn
+	return h2c.NewHandler(r, &http2.Server{})
 }
 
 func StartByPandora(isDebug bool, secret string) (serverAddr string) {
@@ -162,6 +183,126 @@ func StartByPandoraBox(host string, port int, secret string, cors Cors) (serverA
 	}()
 
 	return
+}
+
+func startTLS(cfg *Config) {
+	// first stop existing server
+	if tlsServer != nil {
+		_ = tlsServer.Close()
+		tlsServer = nil
+	}
+
+	// handle tlsAddr
+	if len(cfg.TLSAddr) > 0 {
+		cert, err := ca.LoadTLSKeyPair(cfg.Certificate, cfg.PrivateKey, C.Path)
+		if err != nil {
+			log.Errorln("External controller tls listen error: %s", err)
+			return
+		}
+
+		l, err := inbound.Listen("tcp", cfg.TLSAddr)
+		if err != nil {
+			log.Errorln("External controller tls listen error: %s", err)
+			return
+		}
+
+		log.Infoln("RESTful API tls listening at: %s", l.Addr().String())
+		tlsConfig := &tlsC.Config{}
+		tlsConfig.NextProtos = []string{"h2", "http/1.1"}
+		tlsConfig.Certificates = []tlsC.Certificate{tlsC.UCertificate(cert)}
+
+		if cfg.EchKey != "" {
+			err = ech.LoadECHKey(cfg.EchKey, tlsConfig, C.Path)
+			if err != nil {
+				log.Errorln("External controller tls serve error: %s", err)
+				return
+			}
+		}
+		server := &http.Server{
+			Handler: router(cfg.IsDebug, cfg.Secret, cfg.DohServer, cfg.Cors),
+		}
+		tlsServer = server
+		if err = server.Serve(tlsC.NewListener(l, tlsConfig)); err != nil {
+			log.Errorln("External controller tls serve error: %s", err)
+		}
+	}
+}
+
+func startUnix(cfg *Config) {
+	// first stop existing server
+	if unixServer != nil {
+		_ = unixServer.Close()
+		unixServer = nil
+	}
+
+	// handle addr
+	if len(cfg.UnixAddr) > 0 {
+		addr := C.Path.Resolve(cfg.UnixAddr)
+
+		dir := filepath.Dir(addr)
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				log.Errorln("External controller unix listen error: %s", err)
+				return
+			}
+		}
+
+		// https://devblogs.microsoft.com/commandline/af_unix-comes-to-windows/
+		//
+		// Note: As mentioned above in the ‘security’ section, when a socket binds a socket to a valid pathname address,
+		// a socket file is created within the filesystem. On Linux, the application is expected to unlink
+		// (see the notes section in the man page for AF_UNIX) before any other socket can be bound to the same address.
+		// The same applies to Windows unix sockets, except that, DeleteFile (or any other file delete API)
+		// should be used to delete the socket file prior to calling bind with the same path.
+		_ = syscall.Unlink(addr)
+
+		l, err := inbound.Listen("unix", addr)
+		if err != nil {
+			log.Errorln("External controller unix listen error: %s", err)
+			return
+		}
+		_ = os.Chmod(addr, 0o666)
+		log.Infoln("RESTful API unix listening at: %s", l.Addr().String())
+
+		server := &http.Server{
+			Handler: router(cfg.IsDebug, "", cfg.DohServer, cfg.Cors),
+		}
+		unixServer = server
+		if err = server.Serve(l); err != nil {
+			log.Errorln("External controller unix serve error: %s", err)
+		}
+	}
+}
+
+func startPipe(cfg *Config) {
+	// first stop existing server
+	if pipeServer != nil {
+		_ = pipeServer.Close()
+		pipeServer = nil
+	}
+
+	// handle addr
+	if len(cfg.PipeAddr) > 0 {
+		if !strings.HasPrefix(cfg.PipeAddr, "\\\\.\\pipe\\") { // windows namedpipe must start with "\\.\pipe\"
+			log.Errorln("External controller pipe listen error: windows namedpipe must start with \"\\\\.\\pipe\\\"")
+			return
+		}
+
+		l, err := inbound.ListenNamedPipe(cfg.PipeAddr)
+		if err != nil {
+			log.Errorln("External controller pipe listen error: %s", err)
+			return
+		}
+		log.Infoln("RESTful API pipe listening at: %s", l.Addr().String())
+
+		server := &http.Server{
+			Handler: router(cfg.IsDebug, "", cfg.DohServer, cfg.Cors),
+		}
+		pipeServer = server
+		if err = server.Serve(l); err != nil {
+			log.Errorln("External controller pipe serve error: %s", err)
+		}
+	}
 }
 
 func safeEuqal(a, b string) bool {
