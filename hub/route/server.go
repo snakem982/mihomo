@@ -94,7 +94,7 @@ func SetUIPath(path string) {
 	log.Infoln("SetUIPath is ok")
 }
 
-func router(isDebug bool, secret string, dohServer string, cors Cors) http.Handler {
+func router(isDebug bool, secret string, dohServer string, cors Cors) *chi.Mux {
 	r := chi.NewRouter()
 	cors.Apply(r)
 	if isDebug {
@@ -135,8 +135,7 @@ func router(isDebug bool, secret string, dohServer string, cors Cors) http.Handl
 		r.Mount(dohServer, dohRouter())
 	}
 
-	// using h2c.NewHandler to ensure we can work in plain http2, and some tls conn is not *tls.Conn
-	return h2c.NewHandler(r, &http2.Server{})
+	return r
 }
 
 func StartByPandora(isDebug bool, secret string) (serverAddr string) {
