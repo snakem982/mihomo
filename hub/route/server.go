@@ -30,8 +30,6 @@ import (
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 	"github.com/sagernet/cors"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 )
 
 var (
@@ -222,7 +220,7 @@ func startTLS(cfg *Config) {
 			Handler: router(cfg.IsDebug, cfg.Secret, cfg.DohServer, cfg.Cors),
 		}
 		tlsServer = server
-		if err = server.Serve(tlsC.NewListener(l, tlsConfig)); err != nil {
+		if err = server.Serve(tlsC.NewListenerForHttps(l, server, tlsConfig)); err != nil {
 			log.Errorln("External controller tls serve error: %s", err)
 		}
 	}
