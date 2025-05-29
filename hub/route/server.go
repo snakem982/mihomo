@@ -556,7 +556,7 @@ func version(w http.ResponseWriter, r *http.Request) {
 }
 
 func waitRunStatus(w http.ResponseWriter, r *http.Request) {
-	for tunnel.Status() == tunnel.Suspend {
+	for tunnel.Status() != tunnel.Running {
 		time.Sleep(200 * time.Millisecond)
 	}
 	render.NoContent(w, r)

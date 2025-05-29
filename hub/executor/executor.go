@@ -43,8 +43,6 @@ import (
 	"github.com/metacubex/mihomo/tunnel"
 )
 
-var mux sync.Mutex
-
 func readConfig(path string) ([]byte, error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil, err
@@ -83,8 +81,6 @@ func ParseWithBytes(buf []byte) (*config.Config, error) {
 
 // ApplyConfig dispatch configure to all parts without ExternalController
 func ApplyConfig(cfg *config.Config, force bool) {
-	mux.Lock()
-	defer mux.Unlock()
 	log.SetLevel(cfg.General.LogLevel)
 
 	tunnel.OnSuspend()
@@ -116,7 +112,6 @@ func ApplyConfig(cfg *config.Config, force bool) {
 	loadProvider(cfg.Providers)
 	updateProfile(cfg)
 	loadProvider(cfg.RuleProviders)
-	runtime.GC()
 	tunnel.OnRunning()
 	updateUpdater(cfg)
 
