@@ -59,8 +59,8 @@ require (
 	github.com/metacubex/gvisor v0.0.0-20250324165734-5857f47bd43b // indirect
 	github.com/metacubex/quic-go v0.52.1-0.20250522021943-aef454b9e639 // indirect
 	github.com/metacubex/sing-quic v0.0.0-20250523120938-f1a248e5ec7f // indirect
-	github.com/metacubex/sing-shadowsocks v0.2.10 // indirect
-	github.com/metacubex/sing-shadowsocks2 v0.2.4 // indirect
+	github.com/metacubex/sing-shadowsocks v0.2.11-0.20250531133822-e545de386d4c // indirect
+	github.com/metacubex/sing-shadowsocks2 v0.2.5-0.20250531133559-f4d53bd59335 // indirect
 	github.com/metacubex/sing-tun v0.4.6-0.20250524142129-9d110c0af70c // indirect
 	github.com/metacubex/sing-vmess v0.2.2 // indirect
 	github.com/metacubex/sing-wireguard v0.0.0-20250503063753-2dc62acc626f // indirect
