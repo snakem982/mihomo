@@ -174,6 +174,9 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 			if sni := query.Get("sni"); sni != "" {
 				trojan["sni"] = sni
 			}
+			if peer := query.Get("peer"); peer != "" {
+				trojan["sni"] = peer
+			}
 			if alpn := query.Get("alpn"); alpn != "" {
 				trojan["alpn"] = strings.Split(alpn, ",")
 			}
@@ -522,6 +525,32 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 			}
 
 			proxies = append(proxies, ssr)
+
+		case "anytls":
+			urlAnyTls, err := url.Parse(line)
+			if err != nil {
+				continue
+			}
+
+			username := urlAnyTls.User.Username()
+			password, exist := urlAnyTls.User.Password()
+			if !exist {
+				password = username
+			}
+
+			query := urlAnyTls.Query()
+			name := uniqueName(names, urlAnyTls.Fragment)
+
+			anytls := make(map[string]any, 10)
+			anytls["name"] = name
+			anytls["type"] = scheme
+			anytls["server"] = urlAnyTls.Hostname()
+			anytls["port"] = urlAnyTls.Port()
+			anytls["password"] = password
+			anytls["sni"] = query.Get("sni")
+			anytls["skip-cert-verify"] = true
+
+			proxies = append(proxies, anytls)
 		}
 	}
 
@@ -532,7 +561,11 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 	return proxies, nil
 }
 
-func uniqueName(names map[string]int, name string) string {
+func uniqueName(names map[string]int, nameSrc string) string {
+	name := strings.TrimSpace(nameSrc)
+	if name == "" {
+		name = "px"
+	}
 	if index, ok := names[name]; ok {
 		index++
 		names[name] = index
