@@ -67,7 +67,7 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 			}
 			hysteria["down"] = down
 			hysteria["up"] = up
-			hysteria["skip-cert-verify"] = true
+			hysteria["skip-cert-verify"], _ = strconv.ParseBool(query.Get("insecure"))
 
 			proxies = append(proxies, hysteria)
 
@@ -148,7 +148,6 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 			if udpRelayMode := query.Get("udp_relay_mode"); udpRelayMode != "" {
 				tuic["udp-relay-mode"] = udpRelayMode
 			}
-			tuic["skip-cert-verify"] = true
 
 			proxies = append(proxies, tuic)
 
@@ -526,29 +525,95 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 
 			proxies = append(proxies, ssr)
 
-		case "anytls":
-			urlAnyTls, err := url.Parse(line)
+		case "socks", "socks5", "socks5h", "http", "https":
+			link, err := url.Parse(line)
 			if err != nil {
 				continue
 			}
+			server := link.Hostname()
+			if server == "" {
+				continue
+			}
+			portStr := link.Port()
+			if portStr == "" {
+				continue
+			}
+			remarks := link.Fragment
+			if remarks == "" {
+				remarks = fmt.Sprintf("%s:%s", server, portStr)
+			}
+			name := uniqueName(names, remarks)
+			encodeStr := link.User.String()
+			var username, password string
+			if encodeStr != "" {
+				decodeStr := string(DecodeBase64([]byte(encodeStr)))
+				splitStr := strings.Split(decodeStr, ":")
 
-			username := urlAnyTls.User.Username()
-			password, exist := urlAnyTls.User.Password()
+				// todo: should use url.QueryUnescape ?
+				username = splitStr[0]
+				if len(splitStr) == 2 {
+					password = splitStr[1]
+				}
+			}
+			socks := make(map[string]any, 10)
+			socks["name"] = name
+			socks["type"] = func() string {
+				switch scheme {
+				case "socks", "socks5", "socks5h":
+					return "socks5"
+				case "http", "https":
+					return "http"
+				}
+				return scheme
+			}()
+			socks["server"] = server
+			socks["port"] = portStr
+			socks["username"] = username
+			socks["password"] = password
+			socks["skip-cert-verify"] = true
+			if scheme == "https" {
+				socks["tls"] = true
+			}
+
+			proxies = append(proxies, socks)
+
+		case "anytls":
+			// https://github.com/anytls/anytls-go/blob/main/docs/uri_scheme.md
+			link, err := url.Parse(line)
+			if err != nil {
+				continue
+			}
+			username := link.User.Username()
+			password, exist := link.User.Password()
 			if !exist {
 				password = username
 			}
-
-			query := urlAnyTls.Query()
-			name := uniqueName(names, urlAnyTls.Fragment)
-
+			query := link.Query()
+			server := link.Hostname()
+			if server == "" {
+				continue
+			}
+			portStr := link.Port()
+			if portStr == "" {
+				continue
+			}
+			insecure, sni := query.Get("insecure"), query.Get("sni")
+			insecureBool := insecure == "1"
+			remarks := link.Fragment
+			if remarks == "" {
+				remarks = fmt.Sprintf("%s:%s", server, portStr)
+			}
+			name := uniqueName(names, remarks)
 			anytls := make(map[string]any, 10)
 			anytls["name"] = name
-			anytls["type"] = scheme
-			anytls["server"] = urlAnyTls.Hostname()
-			anytls["port"] = urlAnyTls.Port()
+			anytls["type"] = "anytls"
+			anytls["server"] = server
+			anytls["port"] = portStr
+			anytls["username"] = username
 			anytls["password"] = password
-			anytls["sni"] = query.Get("sni")
-			anytls["skip-cert-verify"] = true
+			anytls["sni"] = sni
+			anytls["skip-cert-verify"] = insecureBool
+			anytls["udp"] = true
 
 			proxies = append(proxies, anytls)
 		}
