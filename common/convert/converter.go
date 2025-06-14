@@ -351,20 +351,14 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 					headers["Host"] = host
 				}
 				if path, ok := values["path"].(string); ok && path != "" {
-					path := path
 					pathURL, err := url.Parse(path)
 					if err == nil {
 						query := pathURL.Query()
 						if earlyData := query.Get("ed"); earlyData != "" {
 							med, err := strconv.Atoi(earlyData)
 							if err == nil {
-								switch network {
-								case "ws":
-									wsOpts["max-early-data"] = med
-									wsOpts["early-data-header-name"] = "Sec-WebSocket-Protocol"
-								case "httpupgrade":
-									wsOpts["v2ray-http-upgrade-fast-open"] = true
-								}
+								wsOpts["max-early-data"] = med
+								wsOpts["early-data-header-name"] = "Sec-WebSocket-Protocol"
 								query.Del("ed")
 								pathURL.RawQuery = query.Encode()
 								path = pathURL.String()
@@ -373,10 +367,15 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 						if earlyDataHeader := query.Get("eh"); earlyDataHeader != "" {
 							wsOpts["early-data-header-name"] = earlyDataHeader
 						}
+						if network == "httpupgrade" {
+							wsOpts["v2ray-http-upgrade"] = true
+							wsOpts["v2ray-http-upgrade-fast-open"] = true
+						}
 					}
 					wsOpts["path"] = path
 				}
 				wsOpts["headers"] = headers
+				vmess["network"] = "ws"
 				vmess["ws-opts"] = wsOpts
 
 			case "grpc":
@@ -599,6 +598,8 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 			}
 			insecure, sni := query.Get("insecure"), query.Get("sni")
 			insecureBool := insecure == "1"
+			fingerprint := query.Get("hpkp")
+
 			remarks := link.Fragment
 			if remarks == "" {
 				remarks = fmt.Sprintf("%s:%s", server, portStr)
@@ -612,6 +613,7 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 			anytls["username"] = username
 			anytls["password"] = password
 			anytls["sni"] = sni
+			anytls["fingerprint"] = fingerprint
 			anytls["skip-cert-verify"] = insecureBool
 			anytls["udp"] = true
 
