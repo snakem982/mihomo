@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // ConvertsSingBox convert SingBox subscribe proxies data to mihomo proxies config
@@ -109,6 +110,7 @@ func ConvertsSingBox(buf []byte) ([]map[string]any, error) {
 
 			resolveTls(trojan, outbound.TLS)
 			resolveNetwork(trojan, outbound)
+			resolveMultiplex(trojan, outbound.Multiplex)
 
 			proxies = append(proxies, trojan)
 
@@ -123,6 +125,7 @@ func ConvertsSingBox(buf []byte) ([]map[string]any, error) {
 
 			resolveTls(vless, outbound.TLS)
 			resolveNetwork(vless, outbound)
+			resolveMultiplex(vless, outbound.Multiplex)
 
 			switch outbound.PacketEncoding {
 			case "none":
@@ -154,15 +157,17 @@ func ConvertsSingBox(buf []byte) ([]map[string]any, error) {
 
 			resolveTls(vmess, outbound.TLS)
 			resolveNetwork(vmess, outbound)
+			resolveMultiplex(vmess, outbound.Multiplex)
 
 			proxies = append(proxies, vmess)
 
-		case "ss", "shadowsocks":
+		case "shadowsocks":
 
 			name := uniqueName(names, outbound.Tag)
 			ss := make(map[string]any, 20)
 
 			resolveBase(ss, name, "ss", outbound)
+			resolveMultiplex(ss, outbound.Multiplex)
 
 			ss["cipher"] = outbound.Method
 			ss["password"] = outbound.Password
@@ -194,6 +199,27 @@ func ConvertsSingBox(buf []byte) ([]map[string]any, error) {
 			}
 
 			proxies = append(proxies, ss)
+
+		case "anytls":
+			name := uniqueName(names, outbound.Tag)
+			anytls := make(map[string]any, 20)
+
+			resolveBase(anytls, name, "anytls", outbound)
+			resolveTls(anytls, outbound.TLS)
+
+			anytls["password"] = outbound.Password
+			anytls["min-idle-session"] = outbound.MinIdleSession
+			idle := extractNumber(outbound.IdleSessionCheckInterval)
+			if idle > 0 {
+				anytls["idle-session-check-interval"] = idle
+			}
+			idle = extractNumber(outbound.IdleSessionTimeout)
+			if idle > 0 {
+				anytls["idle-session-timeout"] = idle
+			}
+
+			proxies = append(proxies, anytls)
+
 		}
 	}
 
@@ -205,62 +231,65 @@ func ConvertsSingBox(buf []byte) ([]map[string]any, error) {
 }
 
 type SingBoxOption struct {
-	Username             string                    `json:"username,omitempty"`
-	Password             string                    `json:"password,omitempty"`
-	Server               string                    `json:"server,omitempty"`
-	ServerPort           int                       `json:"server_port,omitempty"`
-	Tag                  string                    `json:"tag,omitempty"`
-	TLS                  *SingTLS                  `json:"tls,omitempty"`
-	Transport            *SingTransport            `json:"transport,omitempty"`
-	Type                 string                    `json:"type,omitempty"`
-	Method               string                    `json:"method,omitempty"`
-	AlterID              int                       `json:"alter_id,omitempty"`
-	Security             string                    `json:"security,omitempty"`
-	UUID                 string                    `json:"uuid,omitempty"`
-	Default              string                    `json:"default,omitempty"`
-	Outbounds            []string                  `json:"outbounds,omitempty"`
-	Interval             string                    `json:"interval,omitempty"`
-	Tolerance            int                       `json:"tolerance,omitempty"`
-	URL                  string                    `json:"url,omitempty"`
-	Network              string                    `json:"network,omitempty"`
-	Plugin               string                    `json:"plugin,omitempty"`
-	PluginOpts           string                    `json:"plugin_opts,omitempty"`
-	ObfsParam            string                    `json:"obfs_param,omitempty"`
-	Protocol             string                    `json:"protocol,omitempty"`
-	ProtocolParam        string                    `json:"protocol_param,omitempty"`
-	Flow                 string                    `json:"flow,omitempty"`
-	PacketEncoding       string                    `json:"packet_encoding,omitempty"`
-	AuthStr              string                    `json:"auth_str,omitempty"`
-	DisableMtuDiscovery  bool                      `json:"disable_mtu_discovery,omitempty"`
-	Down                 string                    `json:"down,omitempty"`
-	DownMbps             int                       `json:"down_mbps,omitempty"`
-	RecvWindow           int                       `json:"recv_window,omitempty"`
-	RecvWindowConn       int                       `json:"recv_window_conn,omitempty"`
-	Up                   string                    `json:"up,omitempty"`
-	UpMbps               int                       `json:"up_mbps,omitempty"`
-	Detour               string                    `json:"detour,omitempty"`
-	Multiplex            *SingMultiplex            `json:"multiplex,omitempty"`
-	Version              int                       `json:"version,omitempty"`
-	UdpOverTcp           *SingUdpOverTcp           `json:"udp_over_tcp,omitempty"`
-	SystemInterface      bool                      `json:"system_interface,omitempty"`
-	InterfaceName        string                    `json:"interface_name,omitempty"`
-	LocalAddress         []string                  `json:"local_address,omitempty"`
-	PrivateKey           string                    `json:"private_key,omitempty"`
-	Peers                []*SingWireguardMultiPeer `json:"peers,omitempty"`
-	PeerPublicKey        string                    `json:"peer_public_key,omitempty"`
-	PreSharedKey         string                    `json:"pre_shared_key,omitempty"`
-	Reserved             []int64                   `json:"reserved,omitempty"`
-	MTU                  uint                      `json:"mtu,omitempty"`
-	CongestionController string                    `json:"congestion_control,omitempty"`
-	UdpRelayMode         string                    `json:"udp_relay_mode,omitempty"`
-	ZeroRttHandshake     bool                      `json:"zero_rtt_handshake,omitempty"`
-	Heartbeat            string                    `json:"heartbeat,omitempty"`
-	Obfs                 *SingObfs                 `json:"obfs,omitempty"`
-	Ignored              bool                      `json:"-"`
-	TcpFastOpen          bool                      `json:"tcp_fast_open,omitempty"`
-	TcpMultiPath         bool                      `json:"tcp_multi_path,omitempty"`
-	Visible              []string                  `json:"-"`
-	ServerPorts          []string                  `json:"server_ports,omitempty"`
+	Username                 string                    `json:"username,omitempty"`
+	Password                 string                    `json:"password,omitempty"`
+	Server                   string                    `json:"server,omitempty"`
+	ServerPort               int                       `json:"server_port,omitempty"`
+	Tag                      string                    `json:"tag,omitempty"`
+	TLS                      *SingTLS                  `json:"tls,omitempty"`
+	Transport                *SingTransport            `json:"transport,omitempty"`
+	Type                     string                    `json:"type,omitempty"`
+	Method                   string                    `json:"method,omitempty"`
+	AlterID                  int                       `json:"alter_id,omitempty"`
+	Security                 string                    `json:"security,omitempty"`
+	UUID                     string                    `json:"uuid,omitempty"`
+	Default                  string                    `json:"default,omitempty"`
+	Outbounds                []string                  `json:"outbounds,omitempty"`
+	Interval                 string                    `json:"interval,omitempty"`
+	Tolerance                int                       `json:"tolerance,omitempty"`
+	URL                      string                    `json:"url,omitempty"`
+	Network                  string                    `json:"network,omitempty"`
+	Plugin                   string                    `json:"plugin,omitempty"`
+	PluginOpts               string                    `json:"plugin_opts,omitempty"`
+	ObfsParam                string                    `json:"obfs_param,omitempty"`
+	Protocol                 string                    `json:"protocol,omitempty"`
+	ProtocolParam            string                    `json:"protocol_param,omitempty"`
+	Flow                     string                    `json:"flow,omitempty"`
+	PacketEncoding           string                    `json:"packet_encoding,omitempty"`
+	AuthStr                  string                    `json:"auth_str,omitempty"`
+	DisableMtuDiscovery      bool                      `json:"disable_mtu_discovery,omitempty"`
+	Down                     string                    `json:"down,omitempty"`
+	DownMbps                 int                       `json:"down_mbps,omitempty"`
+	RecvWindow               int                       `json:"recv_window,omitempty"`
+	RecvWindowConn           int                       `json:"recv_window_conn,omitempty"`
+	Up                       string                    `json:"up,omitempty"`
+	UpMbps                   int                       `json:"up_mbps,omitempty"`
+	Detour                   string                    `json:"detour,omitempty"`
+	Multiplex                *SingMultiplex            `json:"multiplex,omitempty"`
+	Version                  int                       `json:"version,omitempty"`
+	UdpOverTcp               *SingUdpOverTcp           `json:"udp_over_tcp,omitempty"`
+	SystemInterface          bool                      `json:"system_interface,omitempty"`
+	InterfaceName            string                    `json:"interface_name,omitempty"`
+	LocalAddress             []string                  `json:"local_address,omitempty"`
+	PrivateKey               string                    `json:"private_key,omitempty"`
+	Peers                    []*SingWireguardMultiPeer `json:"peers,omitempty"`
+	PeerPublicKey            string                    `json:"peer_public_key,omitempty"`
+	PreSharedKey             string                    `json:"pre_shared_key,omitempty"`
+	Reserved                 []int64                   `json:"reserved,omitempty"`
+	MTU                      uint                      `json:"mtu,omitempty"`
+	CongestionController     string                    `json:"congestion_control,omitempty"`
+	UdpRelayMode             string                    `json:"udp_relay_mode,omitempty"`
+	ZeroRttHandshake         bool                      `json:"zero_rtt_handshake,omitempty"`
+	Heartbeat                string                    `json:"heartbeat,omitempty"`
+	Obfs                     *SingObfs                 `json:"obfs,omitempty"`
+	Ignored                  bool                      `json:"-"`
+	TcpFastOpen              bool                      `json:"tcp_fast_open,omitempty"`
+	TcpMultiPath             bool                      `json:"tcp_multi_path,omitempty"`
+	Visible                  []string                  `json:"-"`
+	ServerPorts              []string                  `json:"server_ports,omitempty"`
+	IdleSessionCheckInterval string                    `json:"idle_session_check_interval,omitempty"`
+	IdleSessionTimeout       string                    `json:"idle_session_timeout,omitempty"`
+	MinIdleSession           int                       `json:"min_idle_session,omitempty"`
 }
 
 type SingUdpOverTcp struct {
@@ -301,12 +330,19 @@ type SingTransport struct {
 }
 
 type SingMultiplex struct {
-	Enabled        bool   `json:"enabled,omitempty"`
-	MaxConnections int    `json:"max_connections,omitempty"`
-	MinStreams     int    `json:"min_streams,omitempty"`
-	MaxStreams     int    `json:"max_streams,omitempty"`
-	Padding        bool   `json:"padding,omitempty"`
-	Protocol       string `json:"protocol,omitempty"`
+	Enabled        bool        `json:"enabled,omitempty"`
+	MaxConnections int         `json:"max_connections,omitempty"`
+	MinStreams     int         `json:"min_streams,omitempty"`
+	MaxStreams     int         `json:"max_streams,omitempty"`
+	Padding        bool        `json:"padding,omitempty"`
+	Protocol       string      `json:"protocol,omitempty"`
+	Brutal         *SingBrutal `json:"brutal,omitempty"`
+}
+
+type SingBrutal struct {
+	Enabled bool `json:"enabled,omitempty"`
+	Up      int  `json:"up_mbps,omitempty"`
+	Down    int  `json:"down_mbps,omitempty"`
 }
 
 type SingWireguardMultiPeer struct {
@@ -425,4 +461,62 @@ func SingTransportToMap(obj *SingTransport) map[string]interface{} {
 	}
 
 	return result
+}
+
+func resolveMultiplex(v map[string]any, mul *SingMultiplex) {
+	if mul == nil {
+		return
+	}
+
+	// 解析 Multiplex
+	mux := make(map[string]any)
+	mux["enabled"] = mul.Enabled
+	mux["padding"] = mul.Padding
+	if mul.Protocol != "" {
+		mux["protocol"] = mul.Protocol
+	}
+	if mul.MaxConnections > 0 {
+		mux["max-connections"] = mul.MaxConnections
+	}
+	if mul.MinStreams > 0 {
+		mux["min-streams"] = mul.MinStreams
+	}
+	if mul.MaxStreams > 0 {
+		mux["max-streams"] = mul.MaxStreams
+	}
+
+	// 解析 brutal 字段
+	bru := make(map[string]any)
+	brutal := mul.Brutal
+	if brutal != nil {
+		bru["enabled"] = brutal.Enabled
+		bru["up"] = brutal.Up
+		bru["down"] = brutal.Down
+	}
+	if len(bru) > 0 {
+		mux["brutal-opts"] = bru
+	}
+
+	if len(mux) > 0 {
+		v["smux"] = mux
+	}
+}
+
+func extractNumber(s string) int {
+	var numRunes []rune
+	for _, r := range s {
+		if unicode.IsDigit(r) {
+			numRunes = append(numRunes, r)
+		} else {
+			break
+		}
+	}
+	if len(numRunes) == 0 {
+		return 0
+	}
+	num, err := strconv.Atoi(string(numRunes))
+	if err != nil {
+		return 0
+	}
+	return num
 }
