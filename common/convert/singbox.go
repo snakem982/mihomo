@@ -120,6 +120,7 @@ func ConvertsSingBox(buf []byte) ([]map[string]any, error) {
 
 			resolveBase(vless, name, scheme, outbound)
 
+			vless["udp"] = true
 			vless["uuid"] = outbound.UUID
 			vless["flow"] = outbound.Flow
 
