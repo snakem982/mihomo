@@ -50,8 +50,8 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 			hysteria["type"] = scheme
 			hysteria["server"] = urlHysteria.Hostname()
 			hysteria["port"] = urlHysteria.Port()
-			hysteria["sni"] = query.Get("peer")
-			hysteria["obfs"] = query.Get("obfs")
+			resolveSni(hysteria, query)
+			resolveObfs(hysteria, query)
 			if alpn := query.Get("alpn"); alpn != "" {
 				hysteria["alpn"] = strings.Split(alpn, ",")
 			}
@@ -89,9 +89,9 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 			} else {
 				hysteria2["port"] = "443"
 			}
-			hysteria2["obfs"] = query.Get("obfs")
+			resolveObfs(hysteria2, query)
 			hysteria2["obfs-password"] = query.Get("obfs-password")
-			hysteria2["sni"] = query.Get("sni")
+			resolveSni(hysteria2, query)
 			hysteria2["skip-cert-verify"] = true
 			if alpn := query.Get("alpn"); alpn != "" {
 				hysteria2["alpn"] = strings.Split(alpn, ",")
@@ -139,9 +139,7 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 			if alpn := query.Get("alpn"); alpn != "" {
 				tuic["alpn"] = strings.Split(alpn, ",")
 			}
-			if sni := query.Get("sni"); sni != "" {
-				tuic["sni"] = sni
-			}
+			resolveSni(tuic, query)
 			if query.Get("disable_sni") == "1" {
 				tuic["disable-sni"] = true
 			}
@@ -170,12 +168,7 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 			trojan["udp"] = true
 			trojan["skip-cert-verify"] = true
 
-			if sni := query.Get("sni"); sni != "" {
-				trojan["sni"] = sni
-			}
-			if peer := query.Get("peer"); peer != "" {
-				trojan["sni"] = peer
-			}
+			resolveSni(trojan, query)
 			if alpn := query.Get("alpn"); alpn != "" {
 				trojan["alpn"] = strings.Split(alpn, ",")
 			}
@@ -670,4 +663,25 @@ func parseUrl(line string) (*url.URL, error) {
 	}
 
 	return urlVLess, err
+}
+
+func resolveSni(m map[string]any, query url.Values) {
+	if sni := query.Get("sni"); sni != "" {
+		m["sni"] = sni
+	}
+	if peer := query.Get("peer"); peer != "" {
+		m["sni"] = peer
+	}
+}
+
+func resolveObfs(m map[string]any, query url.Values) {
+	obfs := query.Get("obfs")
+	invalidValues := []string{"none", "null", "undefined"}
+	for _, v := range invalidValues {
+		if strings.ToLower(obfs) == v {
+			m["obfs"] = ""
+			return
+		}
+	}
+	m["obfs"] = obfs
 }
