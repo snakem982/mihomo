@@ -325,7 +325,7 @@ type SingTransport struct {
 	Type                string `json:"type,omitempty" yaml:"type,omitempty"`
 	EarlyDataHeaderName string `json:"early_data_header_name,omitempty" yaml:"early-data-header-name,omitempty"`
 	MaxEarlyData        int    `json:"max_early_data,omitempty" yaml:"max-early-data,omitempty"`
-	Host                any    `json:"host,omitempty" yaml:"host,omitempty"`
+	Host                string `json:"host,omitempty" yaml:"host,omitempty"`
 	Method              string `json:"method,omitempty" yaml:"method,omitempty"`
 	ServiceName         string `json:"service_name,omitempty" yaml:"grpc-service-name,omitempty"`
 }
@@ -426,14 +426,20 @@ func resolveNetwork(v map[string]any, outbound SingBoxOption) {
 		case "ws":
 			v["ws-opts"] = SingTransportToMap(outbound.Transport)
 		case "httpupgrade":
-			headers := make(map[string]any)
 			wsOpts := make(map[string]any)
-			headers["User-Agent"] = RandUserAgent()
-			headers["Host"] = outbound.Transport.Host
-			wsOpts["path"] = outbound.Transport.Path
-			wsOpts["headers"] = headers
+			if path := outbound.Transport.Path; path != "" {
+				wsOpts["path"] = path
+			}
 			wsOpts["v2ray-http-upgrade"] = true
 			wsOpts["v2ray-http-upgrade-fast-open"] = true
+
+			if host := outbound.Transport.Host; host != "" {
+				headers := make(map[string]any)
+				headers["User-Agent"] = RandUserAgent()
+				headers["Host"] = host
+				wsOpts["headers"] = headers
+			}
+
 			v["network"] = "ws"
 			v["ws-opts"] = wsOpts
 		case "grpc":
