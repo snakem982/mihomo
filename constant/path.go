@@ -15,9 +15,10 @@ import (
 const Name = "mihomo"
 
 var (
-	GeositeName = "GeoSite.dat"
-	GeoipName   = "GeoIP.dat"
-	ASNName     = "ASN.mmdb"
+	GeositeName    = "GeoSite.dat"
+	GeoipName      = "GeoIP.dat"
+	ASNName        = "ASN.mmdb"
+	SmartmodelName = "Model.bin"
 )
 
 // Path is used to get the configuration path
@@ -75,7 +76,7 @@ func (p *path) Config() string {
 	return p.configFile
 }
 
-// Resolve return a absolute path or a relative path with homedir
+// Resolve returns an absolute path or a relative path with homedir
 func (p *path) Resolve(path string) string {
 	if !filepath.IsAbs(path) {
 		return filepath.Join(p.HomeDir(), path)
@@ -219,4 +220,8 @@ func (p *path) GetExecutableFullPath() string {
 	}
 	res, _ := filepath.EvalSymlinks(exePath)
 	return res
+}
+
+func (p *path) SmartModel() string {
+	return P.Join(p.homeDir, SmartmodelName)
 }

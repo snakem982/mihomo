@@ -43,6 +43,8 @@ import (
 	"github.com/metacubex/mihomo/tunnel"
 )
 
+var mux sync.Mutex
+
 func readConfig(path string) ([]byte, error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil, err
@@ -115,6 +117,8 @@ func ApplyConfig(cfg *config.Config, force bool) {
 	tunnel.OnRunning()
 	updateUpdater(cfg)
 
+	initializeSmartGroups(cfg.Proxies)
+
 	resolver.ResetConnection()
 }
 
@@ -125,8 +129,8 @@ func initInnerTcp() {
 func GetGeneral() *config.General {
 	ports := listener.GetPorts()
 	var authenticator []string
-	if auth := authStore.Default.Authenticator(); auth != nil {
-		authenticator = auth.Users()
+	if auth1 := authStore.Default.Authenticator(); auth1 != nil {
+		authenticator = auth1.Users()
 	}
 
 	general := &config.General{
@@ -518,10 +522,35 @@ func updateIPTables(cfg *config.Config) {
 	log.Infoln("[IPTABLES] Setting iptables completed")
 }
 
+func initializeSmartGroups(proxies map[string]C.Proxy) {
+	closeSmartGroups()
+	for _, proxy := range proxies {
+		if proxy.Type() == C.Smart {
+			if smart, ok := proxy.Adapter().(*outboundgroup.Smart); ok {
+				log.Infoln("[Smart] Initializing Smart Group: %s", proxy.Name())
+				smart.InitializeCache()
+			}
+		}
+	}
+}
+
+func closeSmartGroups() {
+	for _, proxy := range tunnel.Proxies() {
+		if proxy.Type() == C.Smart {
+			proxyAdapter := proxy.Adapter()
+			if smart, ok := proxyAdapter.(*outboundgroup.Smart); ok {
+				smart.Close()
+			}
+		}
+	}
+}
+
 func Shutdown() {
 	listener.Cleanup()
 	tproxy.CleanupTProxyIPTables()
 	resolver.StoreFakePoolState()
+
+	closeSmartGroups()
 
 	log.Warnln("Mihomo shutting down")
 }

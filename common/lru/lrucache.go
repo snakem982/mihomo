@@ -3,6 +3,7 @@ package lru
 // Modified by https://github.com/die-net/lrucache
 
 import (
+	"strings"
 	"sync"
 	"time"
 
@@ -288,4 +289,51 @@ type entry[K comparable, V any] struct {
 	key     K
 	value   V
 	expires int64
+}
+
+func (c *LruCache[K, V]) FilterByKeyPrefix(prefix string) map[string]V {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	result := make(map[string]V)
+
+	for k, le := range c.cache {
+		keyStr, ok := any(k).(string)
+		if !ok {
+			continue
+		}
+
+		if strings.HasPrefix(keyStr, prefix) {
+			e := le.Value
+			result[keyStr] = e.value
+		}
+	}
+
+	return result
+}
+
+func (c *LruCache[K, V]) RemoveByKeyPrefix(prefix string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	var removed int
+	var keysToRemove []K
+
+	for k := range c.cache {
+		keyStr, ok := any(k).(string)
+		if !ok {
+			continue
+		}
+
+		if strings.HasPrefix(keyStr, prefix) {
+			keysToRemove = append(keysToRemove, k)
+		}
+	}
+
+	for _, k := range keysToRemove {
+		c.delete(k)
+		removed++
+	}
+
+	return removed
 }
