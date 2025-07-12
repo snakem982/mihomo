@@ -213,7 +213,14 @@ func (c *DataCollector) initializeWriter() error {
 		fileExists = false
 	}
 
-	if !fileExists {
+	if fileExists {
+		c.file, err = os.OpenFile(c.dataPath, os.O_APPEND|os.O_WRONLY, 0755)
+		if err != nil {
+			return err
+		}
+
+		c.writer = csv.NewWriter(c.file)
+	} else {
 		err = os.MkdirAll(filepath.Dir(c.dataPath), 0755)
 		if err != nil {
 			return err
