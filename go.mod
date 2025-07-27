@@ -62,6 +62,8 @@ require (
 	lukechampine.com/blake3 v1.3.0 // lastest version compatible with golang1.20
 )
 
+require github.com/dmitryikh/leaves v0.0.0-20230708180554-25d19a787328
+
 require (
 	github.com/RyuaNerin/go-krypto v1.3.0 // indirect
 	github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344 // indirect

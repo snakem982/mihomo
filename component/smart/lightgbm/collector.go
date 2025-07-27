@@ -39,14 +39,14 @@ type DataCollector struct {
 }
 
 const (
-	defaultMaxFileSize = 10 * 1024 * 1024
+	defaultMaxFileSize = 100 * 1024 * 1024
 	defaultSampleRate  = 1.0
 )
 
 func GetCollector() *DataCollector {
 	collectorInitOnce.Do(func() {
 		globalCollector = &DataCollector{
-			dataPath:    filepath.Join(C.Path.HomeDir(), "smart", "smart_weight_data.csv"),
+			dataPath:    filepath.Join(C.Path.HomeDir(), "smart_weight_data.csv"),
 			maxFileSize: defaultMaxFileSize,
 			sampleRate:  defaultSampleRate,
 		}
@@ -192,14 +192,14 @@ func (c *DataCollector) initializeWriter() error {
 			reader := csv.NewReader(f)
 			headers, err := reader.Read()
 			if err == nil {
-				hasHash := false
+				hasMax := false
 				for _, h := range headers {
-					if h == "asn_hash" {
-						hasHash = true
+					if h == "maxuploadrate_kb" {
+						hasMax = true
 						break
 					}
 				}
-				if !hasHash {
+				if !hasMax {
 					needUpgrade = true
 				}
 			}
@@ -213,30 +213,19 @@ func (c *DataCollector) initializeWriter() error {
 		fileExists = false
 	}
 
-	if fileExists {
-		c.file, err = os.OpenFile(c.dataPath, os.O_APPEND|os.O_WRONLY, 0755)
-		if err != nil {
-			return err
-		}
+	file, err := os.OpenFile(c.dataPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
 
-		c.writer = csv.NewWriter(c.file)
-	} else {
-		err = os.MkdirAll(filepath.Dir(c.dataPath), 0755)
-		if err != nil {
-			return err
-		}
+	c.file = file
+	c.writer = csv.NewWriter(c.file)
 
-		c.file, err = os.OpenFile(c.dataPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0755)
-		if err != nil {
-			return err
-		}
-
-		c.writer = csv.NewWriter(c.file)
-
+	if !fileExists {
 		headers := []string{
 			"success", "failure", "connect_time", "latency",
-			"upload_mb", "download_mb", "duration_minutes",
-			"last_used_seconds", "is_udp", "is_tcp",
+			"upload_mb", "download_mb", "maxuploadrate_kb", "maxdownloadrate_kb",
+			"duration_minutes", "last_used_seconds", "is_udp", "is_tcp",
 			"asn_feature", "country_feature",
 			"address_feature", "port_feature",
 			"traffic_ratio", "traffic_density", "connection_type_feature",
@@ -246,11 +235,10 @@ func (c *DataCollector) initializeWriter() error {
 			"weight", "weight_source", "timestamp",
 		}
 
-		if err = c.writer.Write(headers); err != nil {
+		if err := c.writer.Write(headers); err != nil {
 			c.file.Close()
 			return err
 		}
-
 		c.writer.Flush()
 	}
 

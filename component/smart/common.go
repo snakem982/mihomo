@@ -52,9 +52,9 @@ const (
 
 	MaxDomainsLimit         = 2000
 	MinDomainsLimit         = 300
-	MaxCacheSizeLimit       = 2000
-	MinCacheSizeLimit       = 300
-	MaxBatchThreshLimit     = 1000
+	MaxCacheSizeLimit       = 3000 // DomainsLimit + PrefetchDomainsLimit
+	MinCacheSizeLimit       = 400
+	MaxBatchThreshLimit     = 500
 	MinBatchThreshLimit     = 100
 	MaxPrefetchDomainsLimit = 2000
 	MinPrefetchDomainsLimit = 100
@@ -111,13 +111,6 @@ var (
 	domainResultCache *lru.LruCache[string, string]
 
 	StatsCache *lru.LruCache[string, *StatsRecord]
-
-	presetSceneParams = map[string]SceneParams{
-		"interactive": {0.4, 0.2, 0.4, 1.2, 1.0, 1.3, 0.3},
-		"streaming":   {0.5, 0.1, 0.4, 1.5, 0.8, 1.2, 0.2},
-		"transfer":    {0.6, 0.2, 0.2, 1.8, 0.7, 0.9, 0.1},
-		"web":         {0.5, 0.3, 0.2, 0.8, 0.6, 1.0, 0.2},
-	}
 )
 
 type (
@@ -146,6 +139,8 @@ type (
 		Weights            map[string]float64 `json:"weights"`
 		UploadTotal        float64            `json:"upload_total"`
 		DownloadTotal      float64            `json:"download_total"`
+		MaxUploadRate      float64            `json:"max_upload_rate"`
+		MaxDownloadRate    float64            `json:"max_download_rate"`
 		ConnectionDuration float64            `json:"connection_duration"`
 	}
 
@@ -162,30 +157,20 @@ type (
 		Ranking     map[string]string `json:"ranking"`
 		LastUpdated time.Time         `json:"last_updated"`
 	}
-
-	SceneParams struct {
-		successRateWeight float64
-		connectTimeWeight float64
-		latencyWeight     float64
-		trafficWeight     float64
-		durationWeight    float64
-		qualityWeight     float64
-		minDecayFactor    float64
-	}
 )
 
 func InitializeGlobalParams() {
 	InitializeCache()
 }
 
-// FormatCacheKey 格式化缓存键
+// 格式化缓存键
 func FormatCacheKey(keyType, config, group string, parts ...string) string {
 	elements := []string{keyType, config, group}
 	elements = append(elements, parts...)
 	return strings.Join(elements, ":")
 }
 
-// FormatDBKey 格式化数据库键
+// 格式化数据库键
 func FormatDBKey(first string, parts ...string) string {
 	elements := make([]string, 0, len(parts)+1)
 	elements = append(elements, first)
@@ -199,7 +184,7 @@ func FormatDBKey(first string, parts ...string) string {
 	return strings.Join(elements, "/")
 }
 
-// GetEffectiveDomain 获取有效顶级域名加一级域名
+// 获取有效顶级域名加一级域名
 func GetEffectiveDomain(host string, dstIP string) string {
 	if host != "" {
 		if domainResultCache != nil {
@@ -213,7 +198,7 @@ func GetEffectiveDomain(host string, dstIP string) string {
 
 		if ip := net.ParseIP(host); ip != nil {
 			result = ip.String()
-		} else if eTLD, err := publicsuffix.EffectiveTLDPlusOne(host); err == nil {
+		} else if eTLD, err := publicsuffix.EffectiveTLDPlusOne(host); err == nil && eTLD != "" && eTLD != host {
 			result = eTLD
 		} else {
 			result = host
@@ -234,7 +219,7 @@ func GetEffectiveDomain(host string, dstIP string) string {
 	return ""
 }
 
-// ClampValue 限制值在指定范围内
+// 限制值在指定范围内
 func ClampValue(value, min, max int) int {
 	if value < min {
 		return min
@@ -245,7 +230,7 @@ func ClampValue(value, min, max int) int {
 	return value
 }
 
-// GetTimeDecayWithCache 时间衰减
+// 时间衰减
 func GetTimeDecayWithCache(lastUsedTime int64, now int64, minDecay float64, decayCache map[int64]float64) float64 {
 	fuzzyLastUsedTime := (lastUsedTime / 3600) * 3600
 
@@ -278,7 +263,7 @@ func GetTimeDecayWithCache(lastUsedTime int64, now int64, minDecay float64, deca
 	return decay
 }
 
-// CalculateMemoryBasedLimit 根据系统内存计算限制
+// 根据系统内存计算限制
 func CalculateMemoryBasedLimit(memUsage float64, min, max int, factor float64) int {
 	if memUsage < 0 {
 		memUsage = 0
@@ -293,7 +278,7 @@ func CalculateMemoryBasedLimit(memUsage float64, min, max int, factor float64) i
 	return ClampValue(value, min, max)
 }
 
-// GetBatchSaveThreshold 获取批量保存阈值
+// 获取批量保存阈值
 func GetBatchSaveThreshold() int {
 	globalCacheParams.mutex.RLock()
 	defer globalCacheParams.mutex.RUnlock()
@@ -305,7 +290,7 @@ func GetBatchSaveThreshold() int {
 	return globalCacheParams.BatchSaveThreshold
 }
 
-// GetSystemMemoryUsage 获取系统内存使用情况
+// 获取系统内存使用情况
 func GetSystemMemoryUsage() float64 {
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
@@ -323,7 +308,7 @@ func GetSystemMemoryUsage() float64 {
 	return usagePercent
 }
 
-// IsFirstInstanceForConfig 检查当前实例是否是特定配置的第一个实例
+// 检查当前实例是否是特定配置的第一个实例
 func IsFirstInstanceForConfig(config string) bool {
 	globalInitLock.Lock()
 	defer globalInitLock.Unlock()
@@ -384,7 +369,7 @@ func getSystemMemoryLimit() float64 {
 	return cachedMemoryLimit
 }
 
-// FlushByLevel 按级别刷新缓存
+// 按级别刷新缓存
 func (s *Store) FlushByLevel(level string, config string, group string) error {
 	if level == "" {
 		return errors.New("flush level cannot be empty")
@@ -446,7 +431,7 @@ func (s *Store) FlushByLevel(level string, config string, group string) error {
 	return nil
 }
 
-// FlushAll 清空所有缓存
+// 清空所有缓存
 func (s *Store) FlushAll() error {
 	log.Debugln("[SmartStore] Starting FlushAll, current queue length: %d", len(globalOperationQueue))
 	err := s.FlushByLevel("all", "", "")
@@ -456,7 +441,7 @@ func (s *Store) FlushAll() error {
 	return err
 }
 
-// FlushByConfig 按配置清空缓存
+// 按配置清空缓存
 func (s *Store) FlushByConfig(config string) error {
 	err := s.FlushByLevel("config", config, "")
 	if err == nil {

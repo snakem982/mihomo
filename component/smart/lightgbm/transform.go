@@ -28,7 +28,7 @@ import (
 //
 // [definitions]
 // std_type=StandardScaler
-// std_features=2,3,4,5,6,7,15
+// std_features=2,3,4,5,8,9,17
 // std_mean=...comma separated float values...
 // std_scale=...comma separated float values...
 //
@@ -38,7 +38,7 @@ import (
 // robust_scale=...comma separated float values...
 // [/definitions]
 //
-// untransformed_features=8:is_udp,9:is_tcp,10:asn_feature,...
+// untransformed_features=10:is_udp,11:is_tcp,12:asn_feature,...
 // transform=true
 // [/transforms]
 //
@@ -76,7 +76,7 @@ var transformPool = sync.Pool{
 	},
 }
 
-// 读取transforms参数
+// LoadTransformsFromModel 读取transforms参数
 func LoadTransformsFromModel(modelPath string) (*FeatureTransforms, error) {
 	file, err := os.Open(modelPath)
 	if err != nil {
@@ -247,7 +247,7 @@ func parseTransformsContent(content string) (*FeatureTransforms, error) {
 	if len(featureTransforms.FeatureOrder) == 0 {
 		featureTransforms.FeatureOrder = getDefaultFeatureOrder()
 	} else {
-		expectedCount := 21
+		expectedCount := MaxFeatureSize
 		if len(featureTransforms.FeatureOrder) != expectedCount {
 			defaultOrder := getDefaultFeatureOrder()
 			for idx, name := range defaultOrder {
@@ -354,13 +354,29 @@ func parseStringArray(value string) []string {
 
 func getDefaultFeatureOrder() map[int]string {
 	return map[int]string{
-		0: "success", 1: "failure", 2: "connect_time", 3: "latency",
-		4: "upload_mb", 5: "download_mb", 6: "duration_minutes",
-		7: "last_used_seconds", 8: "is_udp", 9: "is_tcp",
-		10: "asn_feature", 11: "country_feature", 12: "address_feature",
-		13: "port_feature", 14: "traffic_ratio", 15: "traffic_density",
-		16: "connection_type_feature", 17: "asn_hash", 18: "host_hash",
-		19: "ip_hash", 20: "geoip_hash",
+		0:  "success",
+		1:  "failure",
+		2:  "connect_time",
+		3:  "latency",
+		4:  "upload_mb",
+		5:  "download_mb",
+		6:  "max_upload_rate_kb",
+		7:  "max_download_rate_kb",
+		8:  "duration_minutes",
+		9:  "last_used_seconds",
+		10: "is_udp",
+		11: "is_tcp",
+		12: "asn_feature",
+		13: "country_feature",
+		14: "address_feature",
+		15: "port_feature",
+		16: "traffic_ratio",
+		17: "traffic_density",
+		18: "connection_type_feature",
+		19: "asn_hash",
+		20: "host_hash",
+		21: "ip_hash",
+		22: "geoip_hash",
 	}
 }
 

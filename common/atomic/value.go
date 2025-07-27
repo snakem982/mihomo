@@ -2,6 +2,7 @@ package atomic
 
 import (
 	"encoding/json"
+	"math"
 	"sync/atomic"
 )
 
@@ -95,3 +96,80 @@ type noCopy struct{}
 // Lock is a no-op used by -copylocks checker from `go vet`.
 func (*noCopy) Lock()   {}
 func (*noCopy) Unlock() {}
+
+// Update TypedValue[map[K]V]
+func (t *TypedValue[T]) Update(f func(old T) (new T)) {
+	switch any(DefaultValue[T]()).(type) {
+	case map[string]float64:
+		old := t.Load()
+		n := f(old)
+		t.Store(n)
+		return
+	}
+	for {
+		old := t.Load()
+		n := f(old)
+		if t.CompareAndSwap(old, n) {
+			return
+		}
+	}
+}
+
+func CloneMap[K comparable, V any](m map[K]V) map[K]V {
+	if m == nil {
+		return make(map[K]V)
+	}
+	newMap := make(map[K]V, len(m))
+	for k, v := range m {
+		newMap[k] = v
+	}
+	return newMap
+}
+
+// Float64 atomic.Float64
+type Float64 struct {
+	value uint64
+}
+
+func (f *Float64) Store(val float64) {
+	atomic.StoreUint64(&f.value, math.Float64bits(val))
+}
+
+func (f *Float64) Load() float64 {
+	return math.Float64frombits(atomic.LoadUint64(&f.value))
+}
+
+func (f *Float64) Add(delta float64) float64 {
+	for {
+		oldBits := atomic.LoadUint64(&f.value)
+		old := math.Float64frombits(oldBits)
+		n := old + delta
+		newBits := math.Float64bits(n)
+		if atomic.CompareAndSwapUint64(&f.value, oldBits, newBits) {
+			return n
+		}
+	}
+}
+
+func (f *Float64) Swap(new float64) float64 {
+	for {
+		oldBits := atomic.LoadUint64(&f.value)
+		newBits := math.Float64bits(new)
+		if atomic.CompareAndSwapUint64(&f.value, oldBits, newBits) {
+			return math.Float64frombits(oldBits)
+		}
+	}
+}
+
+func (f *Float64) MarshalJSON() ([]byte, error) {
+	return json.Marshal(f.Load())
+}
+
+func (f *Float64) UnmarshalJSON(b []byte) error {
+	var v float64
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	f.Store(v)
+	return nil
+}

@@ -21,15 +21,22 @@ type Tracker interface {
 	C.Connection
 }
 
+type rateSample struct {
+	timestamp time.Time
+	bytes     int64
+}
+
 type TrackerInfo struct {
-	UUID          uuid.UUID    `json:"id"`
-	Metadata      *C.Metadata  `json:"metadata"`
-	UploadTotal   atomic.Int64 `json:"upload"`
-	DownloadTotal atomic.Int64 `json:"download"`
-	Start         time.Time    `json:"start"`
-	Chain         C.Chain      `json:"chains"`
-	Rule          string       `json:"rule"`
-	RulePayload   string       `json:"rulePayload"`
+	UUID            uuid.UUID    `json:"id"`
+	Metadata        *C.Metadata  `json:"metadata"`
+	UploadTotal     atomic.Int64 `json:"upload"`
+	DownloadTotal   atomic.Int64 `json:"download"`
+	Start           time.Time    `json:"start"`
+	Chain           C.Chain      `json:"chains"`
+	Rule            string       `json:"rule"`
+	RulePayload     string       `json:"rulePayload"`
+	MaxUploadRate   atomic.Int64 `json:"maxUploadRate"`
+	MaxDownloadRate atomic.Int64 `json:"maxDownloadRate"`
 }
 
 type tcpTracker struct {
@@ -38,6 +45,9 @@ type tcpTracker struct {
 	manager *Manager
 
 	pushToManager bool `json:"-"`
+
+	uploadRateWindow   []rateSample
+	downloadRateWindow []rateSample
 }
 
 func (tt *tcpTracker) ID() string {
@@ -55,6 +65,7 @@ func (tt *tcpTracker) Read(b []byte) (int, error) {
 		tt.manager.PushDownloaded(download)
 	}
 	tt.DownloadTotal.Add(download)
+	updateMaxRate(&tt.downloadRateWindow, download, &tt.TrackerInfo.MaxDownloadRate, 5)
 	return n, err
 }
 
@@ -65,6 +76,7 @@ func (tt *tcpTracker) ReadBuffer(buffer *buf.Buffer) (err error) {
 		tt.manager.PushDownloaded(download)
 	}
 	tt.DownloadTotal.Add(download)
+	updateMaxRate(&tt.downloadRateWindow, download, &tt.TrackerInfo.MaxDownloadRate, 5)
 	return
 }
 
@@ -74,6 +86,7 @@ func (tt *tcpTracker) UnwrapReader() (io.Reader, []N.CountFunc) {
 			tt.manager.PushDownloaded(download)
 		}
 		tt.DownloadTotal.Add(download)
+		updateMaxRate(&tt.downloadRateWindow, download, &tt.TrackerInfo.MaxDownloadRate, 5)
 	}}
 }
 
@@ -84,6 +97,7 @@ func (tt *tcpTracker) Write(b []byte) (int, error) {
 		tt.manager.PushUploaded(upload)
 	}
 	tt.UploadTotal.Add(upload)
+	updateMaxRate(&tt.uploadRateWindow, upload, &tt.TrackerInfo.MaxUploadRate, 5)
 	return n, err
 }
 
@@ -94,6 +108,7 @@ func (tt *tcpTracker) WriteBuffer(buffer *buf.Buffer) (err error) {
 		tt.manager.PushUploaded(upload)
 	}
 	tt.UploadTotal.Add(upload)
+	updateMaxRate(&tt.uploadRateWindow, upload, &tt.TrackerInfo.MaxUploadRate, 5)
 	return
 }
 
@@ -103,12 +118,14 @@ func (tt *tcpTracker) UnwrapWriter() (io.Writer, []N.CountFunc) {
 			tt.manager.PushUploaded(upload)
 		}
 		tt.UploadTotal.Add(upload)
+		updateMaxRate(&tt.uploadRateWindow, upload, &tt.TrackerInfo.MaxUploadRate, 5)
 	}}
 }
 
 func (tt *tcpTracker) Close() error {
+	connErr := tt.Conn.Close()
 	tt.manager.Leave(tt)
-	return tt.Conn.Close()
+	return connErr
 }
 
 func (tt *tcpTracker) Upstream() any {
@@ -118,11 +135,15 @@ func (tt *tcpTracker) Upstream() any {
 func NewTCPTracker(conn C.Conn, manager *Manager, metadata *C.Metadata, rule C.Rule, uploadTotal int64, downloadTotal int64, pushToManager bool) *tcpTracker {
 	metadata.RemoteDst = conn.RemoteDestination()
 
+	trackerUUID := utils.NewUUIDV4()
+
+	metadata.UUID = trackerUUID.String()
+
 	t := &tcpTracker{
 		Conn:    conn,
 		manager: manager,
 		TrackerInfo: &TrackerInfo{
-			UUID:          utils.NewUUIDV4(),
+			UUID:          trackerUUID,
 			Start:         time.Now(),
 			Metadata:      metadata,
 			Chain:         conn.Chains(),
@@ -157,6 +178,9 @@ type udpTracker struct {
 	manager *Manager
 
 	pushToManager bool `json:"-"`
+
+	uploadRateWindow   []rateSample
+	downloadRateWindow []rateSample
 }
 
 func (ut *udpTracker) ID() string {
@@ -174,6 +198,7 @@ func (ut *udpTracker) ReadFrom(b []byte) (int, net.Addr, error) {
 		ut.manager.PushDownloaded(download)
 	}
 	ut.DownloadTotal.Add(download)
+	updateMaxRate(&ut.downloadRateWindow, download, &ut.TrackerInfo.MaxDownloadRate, 5)
 	return n, addr, err
 }
 
@@ -184,6 +209,7 @@ func (ut *udpTracker) WaitReadFrom() (data []byte, put func(), addr net.Addr, er
 		ut.manager.PushDownloaded(download)
 	}
 	ut.DownloadTotal.Add(download)
+	updateMaxRate(&ut.downloadRateWindow, download, &ut.TrackerInfo.MaxDownloadRate, 5)
 	return
 }
 
@@ -194,12 +220,14 @@ func (ut *udpTracker) WriteTo(b []byte, addr net.Addr) (int, error) {
 		ut.manager.PushUploaded(upload)
 	}
 	ut.UploadTotal.Add(upload)
+	updateMaxRate(&ut.uploadRateWindow, upload, &ut.TrackerInfo.MaxUploadRate, 5)
 	return n, err
 }
 
 func (ut *udpTracker) Close() error {
+	connErr := ut.PacketConn.Close()
 	ut.manager.Leave(ut)
-	return ut.PacketConn.Close()
+	return connErr
 }
 
 func (ut *udpTracker) Upstream() any {
@@ -209,11 +237,15 @@ func (ut *udpTracker) Upstream() any {
 func NewUDPTracker(conn C.PacketConn, manager *Manager, metadata *C.Metadata, rule C.Rule, uploadTotal int64, downloadTotal int64, pushToManager bool) *udpTracker {
 	metadata.RemoteDst = conn.RemoteDestination()
 
+	trackerUUID := utils.NewUUIDV4()
+
+	metadata.UUID = trackerUUID.String()
+
 	ut := &udpTracker{
 		PacketConn: conn,
 		manager:    manager,
 		TrackerInfo: &TrackerInfo{
-			UUID:          utils.NewUUIDV4(),
+			UUID:          trackerUUID,
 			Start:         time.Now(),
 			Metadata:      metadata,
 			Chain:         conn.Chains(),
@@ -240,4 +272,27 @@ func NewUDPTracker(conn C.PacketConn, manager *Manager, metadata *C.Metadata, ru
 
 	manager.Join(ut)
 	return ut
+}
+
+func updateMaxRate(rateWindow *[]rateSample, current int64, maxRate *atomic.Int64, windowSec int) {
+	now := time.Now()
+	*rateWindow = append(*rateWindow, rateSample{timestamp: now, bytes: current})
+
+	windowStart := now.Add(-time.Duration(windowSec) * time.Second)
+	i := 0
+	for ; i < len(*rateWindow); i++ {
+		if (*rateWindow)[i].timestamp.After(windowStart) {
+			break
+		}
+	}
+	*rateWindow = (*rateWindow)[i:]
+
+	var totalBytes int64
+	for _, sample := range *rateWindow {
+		totalBytes += sample.bytes
+	}
+	avgRate := int64(float64(totalBytes) / float64(windowSec))
+	if avgRate > maxRate.Load() {
+		maxRate.Store(avgRate)
+	}
 }

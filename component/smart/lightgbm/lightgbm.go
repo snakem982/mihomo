@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	MaxFeatureSize = 21
+	MaxFeatureSize = 23
 )
 
 var (
@@ -414,6 +414,8 @@ type ModelInput struct {
 	Latency            int64   // 延迟(毫秒)
 	UploadTotal        float64 // 上传流量(字节)
 	DownloadTotal      float64 // 下载流量(字节)
+	MaxuploadRate      float64 // 最大上传速率(字节/秒)
+	MaxdownloadRate    float64 // 最大下载速率(字节/秒)
 	ConnectionDuration float64 // 连接持续时间(毫秒)
 	LastUsed           int64   // 上次使用时间
 
@@ -603,6 +605,8 @@ func (m *WeightModel) fallbackPrediction(input *ModelInput, priorityFactor float
 		input.IsUDP,
 		input.UploadTotal,
 		input.DownloadTotal,
+		input.MaxuploadRate,
+		input.MaxdownloadRate,
 		input.ConnectionDuration,
 		input.LastUsed,
 	) * priorityFactor
@@ -643,9 +647,11 @@ func prepareFeatures(input *ModelInput) []float64 {
 	features := make([]float64, 0, MaxFeatureSize)
 
 	// 1. 节点性能指标 - 基础特征
-	uploadMB := input.UploadTotal / (1024.0 * 1024.0)
-	downloadMB := input.DownloadTotal / (1024.0 * 1024.0)
-	durationMinutes := input.ConnectionDuration / 60000.0
+	uploadMB := input.UploadTotal
+	downloadMB := input.DownloadTotal
+	maxUploadRateKB := input.MaxuploadRate
+	maxDownloadRateKB := input.MaxdownloadRate
+	durationMinutes := input.ConnectionDuration
 	lastUsedSeconds := 0.0
 	if input.LastUsed > 0 {
 		lastUsedSeconds = float64(time.Now().Unix() - input.LastUsed)
@@ -658,6 +664,8 @@ func prepareFeatures(input *ModelInput) []float64 {
 	features = append(features, math.Log1p(float64(input.Latency)))     // 延迟（对数变换）
 	features = append(features, math.Log1p(uploadMB))                   // 上传流量MB（对数变换）
 	features = append(features, math.Log1p(downloadMB))                 // 下载流量MB（对数变换）
+	features = append(features, math.Log1p(maxUploadRateKB))            // 最大上传速率KB/s（对数变换）
+	features = append(features, math.Log1p(maxDownloadRateKB))          // 最大下载速率KB/s（对数变换）
 	features = append(features, math.Log1p(durationMinutes))            // 连接持续时间分钟（对数变换）
 	features = append(features, math.Log1p(lastUsedSeconds))            // 上次使用至今秒数（对数变换）
 
@@ -1022,8 +1030,8 @@ func boolToFloat(b bool) float64 {
 }
 
 func CreateModelInputFromStats(success, failure, connectTime, latency int64,
-	isUDP bool, isTCP bool, uploadTotal, downloadTotal float64,
-	connectionDuration float64, lastUsed int64, metadata *C.Metadata) *ModelInput {
+	isUDP bool, isTCP bool, uploadTotal, downloadTotal, maxUploadRate, maxDownloadRate, connectionDuration float64,
+	lastUsed int64, metadata *C.Metadata) *ModelInput {
 
 	var input = &ModelInput{
 		Success:            success,
@@ -1032,6 +1040,8 @@ func CreateModelInputFromStats(success, failure, connectTime, latency int64,
 		Latency:            latency,
 		UploadTotal:        uploadTotal,
 		DownloadTotal:      downloadTotal,
+		MaxuploadRate:      maxUploadRate,
+		MaxdownloadRate:    maxDownloadRate,
 		ConnectionDuration: connectionDuration,
 		LastUsed:           lastUsed,
 		IsUDP:              isUDP,
@@ -1052,7 +1062,7 @@ func CreateModelInputFromStats(success, failure, connectTime, latency int64,
 }
 
 func CreateModelInputFromStatsRecord(record *smart.StatsRecord, metadata *C.Metadata,
-	uploadTotal, downloadTotal int64, connectionDuration int64) *ModelInput {
+	uploadTotal, downloadTotal, maxUploadRate, maxDownloadRate float64) *ModelInput {
 
 	if record == nil || metadata == nil {
 		return nil
@@ -1065,9 +1075,11 @@ func CreateModelInputFromStatsRecord(record *smart.StatsRecord, metadata *C.Meta
 		record.Latency,
 		metadata.NetWork == C.UDP,
 		metadata.NetWork == C.TCP,
-		float64(uploadTotal),
-		float64(downloadTotal),
-		float64(connectionDuration),
+		uploadTotal,
+		downloadTotal,
+		maxUploadRate,
+		maxDownloadRate,
+		record.ConnectionDuration,
 		record.LastUsed.Unix(),
 		metadata,
 	)

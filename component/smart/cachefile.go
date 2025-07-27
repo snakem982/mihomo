@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -59,15 +58,8 @@ func (s *Store) BatchSave(operations []StoreOperation) error {
 		return nil
 	}
 
-	operationCount := len(operations)
-	concurrency := runtime.NumCPU()
-	if operationCount < 200 {
-		if concurrency > 2 {
-			concurrency = 2
-		}
-	} else if concurrency > 8 {
-		concurrency = 8
-	}
+	concurrency := 2
+	batchSize := 100
 
 	writeMap := opMapPool.Get().(map[string][]byte)
 	cacheUpdates := cacheUpdatePool.Get().(map[string]interface{})
@@ -77,22 +69,13 @@ func (s *Store) BatchSave(operations []StoreOperation) error {
 			delete(writeMap, k)
 		}
 		opMapPool.Put(writeMap)
-
 		for k := range cacheUpdates {
 			delete(cacheUpdates, k)
 		}
 		cacheUpdatePool.Put(cacheUpdates)
 	}()
 
-	batchSize := 200
-	if operationCount < 500 {
-		batchSize = 100
-	} else if operationCount > 2000 {
-		batchSize = 300
-	}
-
-	b, _ := batch.New[struct{}](context.Background(),
-		batch.WithConcurrencyNum[struct{}](concurrency))
+	b, _ := batch.New[struct{}](context.Background(), batch.WithConcurrencyNum[struct{}](concurrency))
 	var writeMapSync sync.Map
 	var cacheUpdatesSync sync.Map
 
@@ -142,7 +125,7 @@ func (s *Store) BatchSave(operations []StoreOperation) error {
 						}
 					case OpSavePrefetch:
 						cacheKey = FormatCacheKey(KeyTypePrefetch, op.Config, op.Group, op.Domain)
-						var prefetchMap map[string]string
+						var prefetchMap map[string]interface{}
 						if json.Unmarshal(op.Data, &prefetchMap) == nil {
 							cacheUpdatesSync.Store(cacheKey, prefetchMap)
 						}
@@ -172,60 +155,20 @@ func (s *Store) BatchSave(operations []StoreOperation) error {
 	})
 
 	var err error
-	if len(writeMap) > 500 {
-		keys := make([]string, 0, len(writeMap))
-		for k := range writeMap {
-			keys = append(keys, k)
+	err = s.db.Batch(func(tx *bbolt.Tx) error {
+		bucket, err := tx.CreateBucketIfNotExists(bucketSmartStats)
+		if err != nil {
+			return err
 		}
 
-		batchSize := 200
-		batches := (len(keys) + batchSize - 1) / batchSize
-
-		for i := 0; i < batches; i++ {
-			start := i * batchSize
-			end := (i + 1) * batchSize
-			if end > len(keys) {
-				end = len(keys)
-			}
-
-			batchKeys := keys[start:end]
-			batchErr := s.db.Batch(func(tx *bbolt.Tx) error {
-				bucket, err := tx.CreateBucketIfNotExists(bucketSmartStats)
-				if err != nil {
-					return err
-				}
-
-				for _, k := range batchKeys {
-					if err := bucket.Put([]byte(k), writeMap[k]); err != nil {
-						return err
-					}
-				}
-				return nil
-			})
-
-			if batchErr != nil {
-				if err == nil {
-					err = batchErr
-				}
-				log.Debugln("[SmartStore] Batch save operation failed (batch %d/%d): %v", i+1, batches, batchErr)
-			}
-		}
-	} else {
-		err = s.db.Batch(func(tx *bbolt.Tx) error {
-			bucket, err := tx.CreateBucketIfNotExists(bucketSmartStats)
-			if err != nil {
+		for key, data := range writeMap {
+			if err := bucket.Put([]byte(key), data); err != nil {
 				return err
 			}
+		}
 
-			for key, data := range writeMap {
-				if err := bucket.Put([]byte(key), data); err != nil {
-					return err
-				}
-			}
-
-			return nil
-		})
-	}
+		return nil
+	})
 
 	if len(cacheUpdates) > 0 {
 		for key, value := range cacheUpdates {
@@ -281,26 +224,15 @@ func (s *Store) BatchSaveConnStats(operations []StoreOperation) error {
 		lookupToKeys[lookupKey] = append(lookupToKeys[lookupKey], opKey)
 	}
 
-	concurrency := runtime.NumCPU()
-	if len(operations) < 100 {
-		if concurrency > 2 {
-			concurrency = 2
-		}
-	} else if concurrency > 8 {
-		concurrency = 8
-	}
+	concurrency := 2
+	batchSize := 100
 
-	b, _ := batch.New[StoreOperation](context.Background(),
-		batch.WithConcurrencyNum[StoreOperation](concurrency))
+	b, _ := batch.New[StoreOperation](context.Background(), batch.WithConcurrencyNum[StoreOperation](concurrency))
 	processGroup := singleflight.Group[StoreOperation]{}
-
-	batchSize := 200
-	if len(operations) < 500 {
-		batchSize = 100
-	}
 
 	for batchStart := 0; batchStart < len(operations); batchStart += batchSize {
 		batchEnd := batchStart + batchSize
+
 		if batchEnd > len(operations) {
 			batchEnd = len(operations)
 		}
@@ -395,7 +327,7 @@ func (s *Store) BatchSaveConnStats(operations []StoreOperation) error {
 							}
 						case OpSavePrefetch:
 							cacheKey = FormatCacheKey(KeyTypePrefetch, op.Config, op.Group, op.Domain)
-							var prefetchMap map[string]string
+							var prefetchMap map[string]interface{}
 							if json.Unmarshal(op.Data, &prefetchMap) == nil {
 								cacheBatch.Store(cacheKey, prefetchMap)
 							}
@@ -465,12 +397,13 @@ func (s *Store) FlushQueue(isThresholdTriggered bool) {
 	}
 	globalCacheParams.mutex.RUnlock()
 
-	if len(globalOperationQueue) <= 200 {
+	if len(globalOperationQueue) <= 100 {
 		ops := globalOperationQueue
 		globalOperationQueue = make([]StoreOperation, 0, threshold)
 		globalQueueMutex.Unlock()
 
 		s.BatchSave(ops)
+		log.Debugln("[SmartStore] Queue datas saved, operations: [%d]", len(ops))
 		return
 	}
 
@@ -478,39 +411,12 @@ func (s *Store) FlushQueue(isThresholdTriggered bool) {
 	globalOperationQueue = make([]StoreOperation, 0, threshold)
 	globalQueueMutex.Unlock()
 
-	var maxBatchSize int
+	maxBatchSize := 100
 	totalOps := len(ops)
-
-	if totalOps > 500 {
-		var memStats runtime.MemStats
-		runtime.ReadMemStats(&memStats)
-		memPressure := float64(memStats.Alloc) / float64(memStats.Sys)
-
-		if memPressure > 0.7 {
-			maxBatchSize = 100
-		} else if memPressure < 0.3 {
-			maxBatchSize = 300
-		} else {
-			maxBatchSize = 200
-		}
-	} else {
-		maxBatchSize = 200
-	}
-
 	batchCount := (totalOps + maxBatchSize - 1) / maxBatchSize
+	concurrency := 2
 
-	concurrency := runtime.NumCPU()
-	if totalOps < 1000 {
-		if concurrency > 4 {
-			concurrency = 4
-		}
-	} else if concurrency > 8 {
-		concurrency = 8
-	}
-
-	b, _ := batch.New[int](context.Background(),
-		batch.WithConcurrencyNum[int](concurrency))
-
+	b, _ := batch.New[int](context.Background(), batch.WithConcurrencyNum[int](concurrency))
 	opsBatchPool := sync.Pool{
 		New: func() interface{} {
 			return make([]StoreOperation, 0, maxBatchSize)
@@ -548,7 +454,7 @@ func (s *Store) FlushQueue(isThresholdTriggered bool) {
 	}
 	ops = nil
 
-	log.Debugln("[SmartStore] Processed all %d batches (%d operations)", batchCount, totalOps)
+	log.Debugln("[SmartStore] Queue datas saved, operations: [%d]", totalOps)
 }
 
 // 根据路径前缀获取所有匹配的数据
@@ -642,12 +548,7 @@ func (s *Store) GetSubBytesByPath(prefix string, all bool) (map[string][]byte, e
 		}
 	}
 
-	skipOffset := 0
-	if maxDomainsLimit > 300 {
-		skipOffset = rand.Intn(maxDomainsLimit / 3)
-	}
-
-	dbResult, err := s.DBViewPrefixScan(prefix, skipOffset, maxDomainsLimit)
+	dbResult, err := s.DBViewPrefixScan(prefix, maxDomainsLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -663,7 +564,7 @@ func (s *Store) GetSubBytesByPath(prefix string, all bool) (map[string][]byte, e
 func (s *Store) DeleteByPath(path string) error {
 	keysToDelete := []string{}
 
-	matchingData, err := s.DBViewPrefixScan(path, 0, 10000)
+	matchingData, err := s.DBViewPrefixScan(path, 10000)
 	if err != nil {
 		return err
 	}
@@ -738,40 +639,67 @@ func (s *Store) DBViewPrefixCount(prefix string) (int, error) {
 	return count, err
 }
 
-// 扫描前缀匹配的记录并返回结果
-func (s *Store) DBViewPrefixScan(prefix string, skipOffset int, maxResults int) (map[string][]byte, error) {
+// 扫描前缀匹配的记录并随机返回结果
+func (s *Store) DBViewPrefixScan(prefix string, maxResults int) (map[string][]byte, error) {
 	result := make(map[string][]byte)
 
-	err := s.db.View(func(tx *bbolt.Tx) error {
+	count, err := s.DBViewPrefixCount(prefix)
+	if err != nil {
+		return nil, err
+	}
+
+	if count <= maxResults {
+		err := s.db.View(func(tx *bbolt.Tx) error {
+			bucket := tx.Bucket(bucketSmartStats)
+			if bucket == nil {
+				return nil
+			}
+			cursor := bucket.Cursor()
+			prefixBytes := []byte(prefix)
+			for k, v := cursor.Seek(prefixBytes); k != nil && bytes.HasPrefix(k, prefixBytes); k, v = cursor.Next() {
+				dataCopy := make([]byte, len(v))
+				copy(dataCopy, v)
+				result[string(k)] = dataCopy
+			}
+			return nil
+		})
+		return result, err
+	}
+
+	type kv struct {
+		key string
+		val []byte
+	}
+	reservoir := make([]kv, 0, maxResults)
+	total := 0
+
+	err = s.db.View(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bucketSmartStats)
 		if bucket == nil {
 			return nil
 		}
-
 		cursor := bucket.Cursor()
 		prefixBytes := []byte(prefix)
-		currentIndex := 0
-		recordCount := 0
-
-		var k, v []byte
-		for k, v = cursor.Seek(prefixBytes); k != nil && bytes.HasPrefix(k, prefixBytes) && currentIndex < skipOffset; k, v = cursor.Next() {
-			currentIndex++
-		}
-
-		for ; k != nil && bytes.HasPrefix(k, prefixBytes); k, v = cursor.Next() {
-			if recordCount >= maxResults {
-				break
-			}
-			recordCount++
-
-			key := string(k)
+		for k, v := cursor.Seek(prefixBytes); k != nil && bytes.HasPrefix(k, prefixBytes); k, v = cursor.Next() {
+			total++
 			dataCopy := make([]byte, len(v))
 			copy(dataCopy, v)
-			result[key] = dataCopy
+			item := kv{key: string(k), val: dataCopy}
+			if len(reservoir) < maxResults {
+				reservoir = append(reservoir, item)
+			} else {
+				j := rand.Intn(total)
+				if j < maxResults {
+					reservoir[j] = item
+				}
+			}
 		}
 		return nil
 	})
 
+	for _, item := range reservoir {
+		result[item.key] = item.val
+	}
 	return result, err
 }
 
