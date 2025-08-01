@@ -58,11 +58,11 @@ require (
 	github.com/metacubex/gopacket v1.1.20-0.20230608035415-7e2f98a3e759 // indirect
 	github.com/metacubex/gvisor v0.0.0-20250324165734-5857f47bd43b // indirect
 	github.com/metacubex/quic-go v0.53.1-0.20250628094454-fda5262d1d9c // indirect
-	github.com/metacubex/sing-quic v0.0.0-20250718154553-1b193bec4cbb // indirect
-	github.com/metacubex/sing-shadowsocks v0.2.11 // indirect
-	github.com/metacubex/sing-shadowsocks2 v0.2.5 // indirect
-	github.com/metacubex/sing-tun v0.4.7-0.20250721020617-8e7c37ed3d97 // indirect
-	github.com/metacubex/sing-vmess v0.2.3 // indirect
+	github.com/metacubex/sing-quic v0.0.0-20250628100430-24f13f1e846e // indirect
+	github.com/metacubex/sing-shadowsocks v0.2.11-0.20250621023810-0e9ef9dd0c92 // indirect
+	github.com/metacubex/sing-shadowsocks2 v0.2.5-0.20250621023950-93d605a2143d // indirect
+	github.com/metacubex/sing-tun v0.4.7-0.20250708161036-39e27fac35ed // indirect
+	github.com/metacubex/sing-vmess v0.2.2 // indirect
 	github.com/metacubex/sing-wireguard v0.0.0-20250503063753-2dc62acc626f // indirect
 	github.com/moby/term v0.5.0 // indirect
 	github.com/morikuni/aec v1.0.0 // indirect
