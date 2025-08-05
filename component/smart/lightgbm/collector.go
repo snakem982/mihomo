@@ -39,14 +39,14 @@ type DataCollector struct {
 }
 
 const (
-	defaultMaxFileSize = 100 * 1024 * 1024
+	defaultMaxFileSize = 10 * 1024 * 1024
 	defaultSampleRate  = 1.0
 )
 
 func GetCollector() *DataCollector {
 	collectorInitOnce.Do(func() {
 		globalCollector = &DataCollector{
-			dataPath:    filepath.Join(C.Path.HomeDir(), "smart_weight_data.csv"),
+			dataPath:    filepath.Join(C.Path.HomeDir(), "/smart/smart_weight_data.csv"),
 			maxFileSize: defaultMaxFileSize,
 			sampleRate:  defaultSampleRate,
 		}
