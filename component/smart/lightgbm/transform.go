@@ -23,12 +23,37 @@ import (
 // [order]
 // 0=success
 // 1=failure
+// 2=connect_time
+// 3=latency
+// 4=upload_mb
+// 5=history_upload_mb
+// 6=maxuploadrate_kb
+// 7=history_maxuploadrate_kb
+// 8=download_mb
+// 9=history_download_mb
+// 10=maxdownloadrate_kb
+// 11=history_maxdownloadrate_kb
+// 12=duration_minutes
+// 13=last_used_seconds
+// 14=is_udp
+// 15=is_tcp
+// 16=asn_feature
+// 17=country_feature
+// 18=address_feature
+// 19=port_feature
+// 20=traffic_ratio
+// 21=traffic_density
+// 22=connection_type_feature
+// 23=asn_hash
+// 24=host_hash
+// 25=ip_hash
+// 26=geoip_hash
 // ... (index=feature_name, one per line, up to MaxFeatureSize)
 // [/order]
 //
 // [definitions]
 // std_type=StandardScaler
-// std_features=2,3,4,5,8,9,17
+// std_features=2,3,4,5,6,7,8,9,10,11,12,13,20,21
 // std_mean=...comma separated float values...
 // std_scale=...comma separated float values...
 //
@@ -38,7 +63,7 @@ import (
 // robust_scale=...comma separated float values...
 // [/definitions]
 //
-// untransformed_features=10:is_udp,11:is_tcp,12:asn_feature,...
+// untransformed_features=14:is_udp,15:is_tcp,16:asn_feature,17:country_feature,18:address_feature,19:port_feature,22:connection_type_feature,23:asn_hash,24:host_hash,25:ip_hash,26:geoip_hash
 // transform=true
 // [/transforms]
 //
@@ -76,7 +101,7 @@ var transformPool = sync.Pool{
 	},
 }
 
-// LoadTransformsFromModel 读取transforms参数
+// 读取transforms参数
 func LoadTransformsFromModel(modelPath string) (*FeatureTransforms, error) {
 	file, err := os.Open(modelPath)
 	if err != nil {
@@ -359,24 +384,28 @@ func getDefaultFeatureOrder() map[int]string {
 		2:  "connect_time",
 		3:  "latency",
 		4:  "upload_mb",
-		5:  "download_mb",
-		6:  "max_upload_rate_kb",
-		7:  "max_download_rate_kb",
-		8:  "duration_minutes",
-		9:  "last_used_seconds",
-		10: "is_udp",
-		11: "is_tcp",
-		12: "asn_feature",
-		13: "country_feature",
-		14: "address_feature",
-		15: "port_feature",
-		16: "traffic_ratio",
-		17: "traffic_density",
-		18: "connection_type_feature",
-		19: "asn_hash",
-		20: "host_hash",
-		21: "ip_hash",
-		22: "geoip_hash",
+		5:  "history_upload_mb",
+		6:  "maxuploadrate_kb",
+		7:  "history_maxuploadrate_kb",
+		8:  "download_mb",
+		9:  "history_download_mb",
+		10: "maxdownloadrate_kb",
+		11: "history_maxdownloadrate_kb",
+		12: "duration_minutes",
+		13: "last_used_seconds",
+		14: "is_udp",
+		15: "is_tcp",
+		16: "asn_feature",
+		17: "country_feature",
+		18: "address_feature",
+		19: "port_feature",
+		20: "traffic_ratio",
+		21: "traffic_density",
+		22: "connection_type_feature",
+		23: "asn_hash",
+		24: "host_hash",
+		25: "ip_hash",
+		26: "geoip_hash",
 	}
 }
 

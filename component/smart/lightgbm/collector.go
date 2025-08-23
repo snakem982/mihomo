@@ -9,7 +9,6 @@ package lightgbm
 import (
 	"encoding/csv"
 	"fmt"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,34 +20,48 @@ import (
 )
 
 var (
-	collectMutex      sync.Mutex
-	globalCollector   *DataCollector
-	collectorInitOnce sync.Once
+	collectMutex                 sync.Mutex
+	globalCollector              *DataCollector
+	collectorInitOnce            sync.Once
+	configuredSmartCollectorSize int64
 )
 
 type DataCollector struct {
-	mutex       sync.Mutex
-	sampleCount int
-	dataPath    string
-	file        *os.File
-	writer      *csv.Writer
-	configured  bool
-
-	maxFileSize int64
-	sampleRate  float64
+	mutex              sync.Mutex
+	sampleCount        int
+	dataPath           string
+	file               *os.File
+	writer             *csv.Writer
+	configured         bool
+	smartCollectorSize int64
 }
 
 const (
-	defaultMaxFileSize = 10 * 1024 * 1024
-	defaultSampleRate  = 1.0
+	defaultSmartCollectorSize = 100 * 1024 * 1024
 )
+
+func SetSmartCollectorSize(sizeMB float64) {
+	collectMutex.Lock()
+	defer collectMutex.Unlock()
+
+	if sizeMB <= 0 {
+		configuredSmartCollectorSize = defaultSmartCollectorSize
+		return
+	}
+
+	configuredSmartCollectorSize = int64(sizeMB * 1024 * 1024)
+}
 
 func GetCollector() *DataCollector {
 	collectorInitOnce.Do(func() {
+		smartCollectorSize := configuredSmartCollectorSize
+		if smartCollectorSize <= 0 {
+			smartCollectorSize = defaultSmartCollectorSize
+		}
+
 		globalCollector = &DataCollector{
-			dataPath:    filepath.Join(C.Path.HomeDir(), "/smart/smart_weight_data.csv"),
-			maxFileSize: defaultMaxFileSize,
-			sampleRate:  defaultSampleRate,
+			dataPath:           filepath.Join(C.Path.HomeDir(), "/smart/smart_weight_data.csv"),
+			smartCollectorSize: smartCollectorSize,
 		}
 	})
 
@@ -57,11 +70,6 @@ func GetCollector() *DataCollector {
 
 func (c *DataCollector) AddSample(input *ModelInput, metadata *C.Metadata, actualWeight float64, weightSource string) {
 	if c == nil || metadata == nil || input == nil {
-		return
-	}
-
-	// 采样率控制 - 随机丢弃一部分样本
-	if c.sampleRate < 1.0 && rand.Float64() > c.sampleRate {
 		return
 	}
 
@@ -83,8 +91,8 @@ func (c *DataCollector) AddSample(input *ModelInput, metadata *C.Metadata, actua
 	// 检查文件大小限制
 	if c.file != nil {
 		stat, err := c.file.Stat()
-		if err == nil && stat.Size() > c.maxFileSize {
-			log.Infoln("[Smart] Maximum file size limit reached (%d MB), stopping data collection", c.maxFileSize/(1024*1024))
+		if err == nil && stat.Size() > c.smartCollectorSize {
+			log.Infoln("[Smart] Maximum file size limit reached (%d MB), stopping data collection", c.smartCollectorSize/(1024*1024))
 			return
 		}
 	}
@@ -194,7 +202,7 @@ func (c *DataCollector) initializeWriter() error {
 			if err == nil {
 				hasMax := false
 				for _, h := range headers {
-					if h == "maxuploadrate_kb" {
+					if h == "history_upload_mb" {
 						hasMax = true
 						break
 					}
@@ -224,10 +232,10 @@ func (c *DataCollector) initializeWriter() error {
 	if !fileExists {
 		headers := []string{
 			"success", "failure", "connect_time", "latency",
-			"upload_mb", "download_mb", "maxuploadrate_kb", "maxdownloadrate_kb",
+			"upload_mb", "history_upload_mb", "maxuploadrate_kb", "history_maxuploadrate_kb",
+			"download_mb", "history_download_mb", "maxdownloadrate_kb", "history_maxdownloadrate_kb",
 			"duration_minutes", "last_used_seconds", "is_udp", "is_tcp",
-			"asn_feature", "country_feature",
-			"address_feature", "port_feature",
+			"asn_feature", "country_feature", "address_feature", "port_feature",
 			"traffic_ratio", "traffic_density", "connection_type_feature",
 			"asn_hash", "host_hash", "ip_hash", "geoip_hash",
 			"group_name", "node_name",

@@ -180,6 +180,7 @@ type Proxy interface {
 	LastDelayForTestUrl(url string) uint16
 	URLTest(ctx context.Context, url string, expectedStatus utils.IntRanges[uint16]) (uint16, error)
 
+	StatusTest(ctx context.Context, url string, expectedStatus utils.IntRanges[uint16]) (status uint16, ok bool, err error)
 	// Deprecated: use DialContext instead.
 	Dial(metadata *Metadata) (Conn, error)
 

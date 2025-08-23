@@ -113,7 +113,7 @@ func (gb *GroupBase) GetProxies(touch bool) []C.Proxy {
 	gb.getProxiesMutex.Lock()
 	defer gb.getProxiesMutex.Unlock()
 
-	// return the cached proxies if version not changed
+	// return the cached proxies if a version not changed
 	if slices.Equal(providerVersions, gb.providerVersions) {
 		return gb.providerProxies
 	}

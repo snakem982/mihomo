@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net"
 	"runtime"
 	"strconv"
 	"strings"
@@ -20,7 +19,6 @@ import (
 	"github.com/metacubex/mihomo/common/cmd"
 	"github.com/metacubex/mihomo/common/lru"
 	"github.com/metacubex/mihomo/log"
-	"golang.org/x/net/publicsuffix"
 )
 
 const (
@@ -52,11 +50,9 @@ const (
 
 	MaxDomainsLimit         = 2000
 	MinDomainsLimit         = 300
-	MaxCacheSizeLimit       = 3000 // DomainsLimit + PrefetchDomainsLimit
-	MinCacheSizeLimit       = 400
 	MaxBatchThreshLimit     = 500
 	MinBatchThreshLimit     = 100
-	MaxPrefetchDomainsLimit = 2000
+	MaxPrefetchDomainsLimit = 1000
 	MinPrefetchDomainsLimit = 100
 
 	MemoryDomainsFactor   = 0.8
@@ -95,22 +91,6 @@ var (
 
 	cachedMemoryLimit float64
 	memoryLimitOnce   sync.Once
-
-	opMapPool = sync.Pool{
-		New: func() interface{} {
-			return make(map[string][]byte, 64)
-		},
-	}
-
-	cacheUpdatePool = sync.Pool{
-		New: func() interface{} {
-			return make(map[string]interface{}, 64)
-		},
-	}
-
-	domainResultCache *lru.LruCache[string, string]
-
-	StatsCache *lru.LruCache[string, *StatsRecord]
 )
 
 type (
@@ -187,35 +167,11 @@ func FormatDBKey(first string, parts ...string) string {
 // 获取有效顶级域名加一级域名
 func GetEffectiveDomain(host string, dstIP string) string {
 	if host != "" {
-		if domainResultCache != nil {
-			cacheKey := "domain:" + host
-			if cachedResult, ok := domainResultCache.Get(cacheKey); ok {
-				return cachedResult
-			}
-		}
-
-		var result string
-
-		if ip := net.ParseIP(host); ip != nil {
-			result = ip.String()
-		} else if eTLD, err := publicsuffix.EffectiveTLDPlusOne(host); err == nil && eTLD != "" && eTLD != host {
-			result = eTLD
-		} else {
-			result = host
-		}
-
-		if domainResultCache != nil {
-			cacheKey := "domain:" + host
-			domainResultCache.Set(cacheKey, result)
-		}
-
-		return result
+		return host
 	}
-
 	if dstIP != "" {
 		return dstIP
 	}
-
 	return ""
 }
 

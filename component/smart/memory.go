@@ -13,36 +13,28 @@ import (
 	"time"
 
 	"github.com/metacubex/mihomo/common/lru"
+	"github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/log"
+	"github.com/metacubex/mihomo/tunnel"
 )
 
 func InitializeCache() {
 	globalCacheParams.mutex.Lock()
 	defer globalCacheParams.mutex.Unlock()
 
-	if dataCache != nil && domainResultCache != nil && StatsCache != nil {
+	if dataCache != nil {
 		return
 	}
 
 	globalCacheParams.BatchSaveThreshold = MinBatchThreshLimit
 	globalCacheParams.MaxDomains = MinDomainsLimit
 	globalCacheParams.PrefetchLimit = MinPrefetchDomainsLimit
-	globalCacheParams.CacheMaxSize = MinCacheSizeLimit
+	globalCacheParams.CacheMaxSize = MinDomainsLimit + MinPrefetchDomainsLimit
 	globalCacheParams.MemoryLimit = getSystemMemoryLimit()
 
 	dataCache = lru.New[string, interface{}](
 		lru.WithSize[string, interface{}](globalCacheParams.CacheMaxSize),
 		lru.WithAge[string, interface{}](CacheMaxAge),
-	)
-
-	domainResultCache = lru.New[string, string](
-		lru.WithSize[string, string](globalCacheParams.CacheMaxSize),
-		lru.WithAge[string, string](CacheMaxAge),
-	)
-
-	StatsCache = lru.New[string, *StatsRecord](
-		lru.WithSize[string, *StatsRecord](globalCacheParams.CacheMaxSize),
-		lru.WithAge[string, *StatsRecord](CacheMaxAge),
 	)
 }
 
@@ -294,6 +286,13 @@ func (s *Store) AdjustCacheParameters() {
 	memoryUsagePercent := GetSystemMemoryUsage()
 	memoryUsage := memoryUsagePercent / 100.0
 
+	smartGroupCount := 0
+	for _, proxy := range tunnel.Proxies() {
+		if proxy.Type() == constant.Smart {
+			smartGroupCount++
+		}
+	}
+
 	globalCacheParams.mutex.Lock()
 
 	isFirstRun := globalCacheParams.LastMemoryUsage == 0
@@ -315,59 +314,45 @@ func (s *Store) AdjustCacheParameters() {
 	var cacheMaxAge int64 = CacheMaxAge
 
 	if memoryUsage > 0.9 {
-		log.Warnln("[SmartStore] Critical memory pressure detected (%.1f%%), taking emergency measures", memoryUsage*100)
-
 		globalCacheParams.MaxDomains = MinDomainsLimit
-		globalCacheParams.CacheMaxSize = MinCacheSizeLimit
 		globalCacheParams.BatchSaveThreshold = MinBatchThreshLimit
 		globalCacheParams.PrefetchLimit = MinPrefetchDomainsLimit
-
-		newCacheSize = MinCacheSizeLimit / 2
+		globalCacheParams.CacheMaxSize = (globalCacheParams.MaxDomains + globalCacheParams.PrefetchLimit) * smartGroupCount
+		newCacheSize = globalCacheParams.CacheMaxSize / 2
 		cacheMaxAge = CacheMaxAge / 2
 	} else {
 		adjustFactor := 4 * memoryUsage * (1 - memoryUsage)
 
 		if memoryUsage > 0.85 {
 			globalCacheParams.MaxDomains = MinDomainsLimit
-			globalCacheParams.CacheMaxSize = MinCacheSizeLimit
 			globalCacheParams.BatchSaveThreshold = MinBatchThreshLimit
 			globalCacheParams.PrefetchLimit = MinPrefetchDomainsLimit
+			globalCacheParams.CacheMaxSize = (globalCacheParams.MaxDomains + globalCacheParams.PrefetchLimit) * smartGroupCount
 		} else {
 			value := MinDomainsLimit + int(float64(MaxDomainsLimit-MinDomainsLimit)*adjustFactor*MemoryDomainsFactor)
 			globalCacheParams.MaxDomains = ClampValue(value, MinDomainsLimit, MaxDomainsLimit)
-
-			value = MinCacheSizeLimit + int(float64(MaxCacheSizeLimit-MinCacheSizeLimit)*adjustFactor*MemoryCacheSizeFactor)
-			globalCacheParams.CacheMaxSize = ClampValue(value, MinCacheSizeLimit, MaxCacheSizeLimit)
 
 			value = MinBatchThreshLimit + int(float64(MaxBatchThreshLimit-MinBatchThreshLimit)*adjustFactor*MemoryBatchFactor)
 			globalCacheParams.BatchSaveThreshold = ClampValue(value, MinBatchThreshLimit, MaxBatchThreshLimit)
 
 			value = MinPrefetchDomainsLimit + int(float64(MaxPrefetchDomainsLimit-MinPrefetchDomainsLimit)*adjustFactor*MemoryPrefetchFactor)
 			globalCacheParams.PrefetchLimit = ClampValue(value, MinPrefetchDomainsLimit, MaxPrefetchDomainsLimit)
-		}
 
-		log.Infoln("[SmartStore] Parameters adjusted: MaxDomains=%d, CacheSize=%d, BatchThreshold=%d, PrefetchLimit=%d",
-			globalCacheParams.MaxDomains, globalCacheParams.CacheMaxSize,
-			globalCacheParams.BatchSaveThreshold, globalCacheParams.PrefetchLimit)
+			globalCacheParams.CacheMaxSize = (globalCacheParams.MaxDomains + globalCacheParams.PrefetchLimit) * smartGroupCount
+		}
 
 		newCacheSize = globalCacheParams.CacheMaxSize
 	}
+
+	log.Infoln("[SmartStore] Parameters adjusted: MaxDomains=%d, CacheSize=%d, BatchThreshold=%d, PrefetchLimit=%d",
+		globalCacheParams.MaxDomains, globalCacheParams.CacheMaxSize,
+		globalCacheParams.BatchSaveThreshold, globalCacheParams.PrefetchLimit)
 
 	globalCacheParams.mutex.Unlock()
 
 	newDataCache := lru.New[string, interface{}](
 		lru.WithSize[string, interface{}](newCacheSize),
 		lru.WithAge[string, interface{}](cacheMaxAge),
-	)
-
-	newDomainResultCache := lru.New[string, string](
-		lru.WithSize[string, string](newCacheSize),
-		lru.WithAge[string, string](cacheMaxAge),
-	)
-
-	newStatsCache := lru.New[string, *StatsRecord](
-		lru.WithSize[string, *StatsRecord](newCacheSize),
-		lru.WithAge[string, *StatsRecord](cacheMaxAge),
 	)
 
 	var entries map[string]interface{}
@@ -427,8 +412,6 @@ func (s *Store) AdjustCacheParameters() {
 
 	globalCacheLock.Lock()
 	dataCache = newDataCache
-	domainResultCache = newDomainResultCache
-	StatsCache = newStatsCache
 	globalCacheLock.Unlock()
 
 	globalQueueMutex.RLock()
@@ -472,14 +455,6 @@ func (s *Store) PreloadFrequentData(group, config string, proxies []string) {
 func ClearCacheByLevel(level string, config string, group string) {
 	if level == "all" {
 		RemoveCacheValuesByPrefix("")
-		globalCacheLock.Lock()
-		if StatsCache != nil {
-			StatsCache.Clear()
-		}
-		if domainResultCache != nil {
-			domainResultCache.Clear()
-		}
-		globalCacheLock.Unlock()
 	} else if level == "config" {
 		RemoveCacheValuesByPrefix(FormatCacheKey(KeyTypeUnwrap, config, "", ""))
 		RemoveCacheValuesByPrefix(FormatCacheKey(KeyTypeFailed, config, "", ""))
@@ -487,12 +462,6 @@ func ClearCacheByLevel(level string, config string, group string) {
 		RemoveCacheValuesByPrefix(FormatCacheKey(KeyTypeStats, config, "", ""))
 		RemoveCacheValuesByPrefix(FormatCacheKey(KeyTypeRanking, config, "", ""))
 		RemoveCacheValuesByPrefix(FormatCacheKey(KeyTypePrefetch, config, "", ""))
-
-		globalCacheLock.Lock()
-		if StatsCache != nil {
-			StatsCache.RemoveByKeyPrefix(":" + config + ":")
-		}
-		globalCacheLock.Unlock()
 	} else if level == "group" {
 		RemoveCacheValuesByPrefix(FormatCacheKey(KeyTypeUnwrap, config, group, ""))
 		RemoveCacheValuesByPrefix(FormatCacheKey(KeyTypeFailed, config, group, ""))
@@ -500,12 +469,6 @@ func ClearCacheByLevel(level string, config string, group string) {
 		RemoveCacheValuesByPrefix(FormatCacheKey(KeyTypeStats, config, group, ""))
 		RemoveCacheValuesByPrefix(FormatCacheKey(KeyTypeRanking, config, group, ""))
 		RemoveCacheValuesByPrefix(FormatCacheKey(KeyTypePrefetch, config, group, ""))
-
-		globalCacheLock.Lock()
-		if StatsCache != nil {
-			StatsCache.RemoveByKeyPrefix(":" + config + ":" + group + ":")
-		}
-		globalCacheLock.Unlock()
 	}
 }
 

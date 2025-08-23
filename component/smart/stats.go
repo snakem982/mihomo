@@ -33,6 +33,7 @@ type AtomicStatsRecord struct {
 	connectTime atomic.Int64
 	latency     atomic.Int64
 	lastUsed    atomic.Int64
+	status      atomic.Int64
 
 	weights         atomic.TypedValue[map[string]float64]
 	uploadTotal     atomic.Float64
@@ -104,6 +105,7 @@ func (m *AtomicRecordManager) GetOrCreateAtomicRecord(cacheKey string, store *St
 	record := &AtomicStatsRecord{}
 	record.weights.Store(make(map[string]float64))
 	record.lastUsed.Store(time.Now().Unix())
+	record.status.Store(0)
 
 	if store != nil {
 		if existingData, err := store.GetStatsForDomain(groupName, configName, domain); err == nil {
@@ -181,6 +183,8 @@ func (r *AtomicStatsRecord) Get(field string) interface{} {
 		return r.maxDownloadRate.Load()
 	case "duration":
 		return r.duration.Load()
+	case "status":
+		return r.status.Load()
 	default:
 		return nil
 	}
@@ -207,6 +211,10 @@ func (r *AtomicStatsRecord) Set(field string, value interface{}) {
 	case "lastUsed":
 		if v, ok := value.(int64); ok {
 			r.lastUsed.Store(v)
+		}
+	case "status":
+		if v, ok := value.(int64); ok {
+			r.status.Store(v)
 		}
 	case "uploadTotal":
 		if v, ok := value.(float64); ok {
@@ -614,6 +622,22 @@ func (s *Store) GetBestProxyForTarget(group, config string, target string, weigh
 				}
 			}
 		}
+
+		for nodeName, totalWeight := range nodesWithWeight {
+			samples := nodeSamples[nodeName]
+			if samples >= DefaultMinSampleCount {
+				avgWeight := totalWeight / float64(samples)
+				nodesWithWeight[nodeName] = avgWeight
+			} else {
+				delete(nodesWithWeight, nodeName)
+			}
+		}
+
+		for nodeName, weight := range nodesWithWeight {
+			if state, ok := nodeStatesMap[nodeName]; ok && state.Degraded {
+				nodesWithWeight[nodeName] = weight * state.DegradedFactor
+			}
+		}
 	} else {
 		var domainStats map[string][]byte
 		if stats, ok := allStatsMap[target]; ok {
@@ -641,129 +665,102 @@ func (s *Store) GetBestProxyForTarget(group, config string, target string, weigh
 		}
 	}
 
-	if asnMode {
-		for nodeName, totalWeight := range nodesWithWeight {
-			samples := nodeSamples[nodeName]
-			if samples >= DefaultMinSampleCount {
-				avgWeight := totalWeight / float64(samples)
-				nodesWithWeight[nodeName] = avgWeight
+	var requiredNodeCount int
+
+	baseCount := func() int {
+		switch {
+		case availableNodesCount <= 5:
+			return 1
+		case availableNodesCount <= 10:
+			return 2
+		case availableNodesCount <= 20:
+			return 3
+		case availableNodesCount <= 50:
+			return 4
+		default:
+			return 5
+		}
+	}()
+
+	coverageRatio := 0.0
+
+	if availableNodesCount > 0 {
+		coverageRatio = float64(len(nodesWithWeight)) / float64(availableNodesCount)
+	}
+
+	switch {
+	case coverageRatio >= 0.6:
+		requiredNodeCount = baseCount + 1
+	case coverageRatio >= 0.3:
+		requiredNodeCount = baseCount
+	case coverageRatio >= 0.1:
+		requiredNodeCount = (baseCount * 2) / 3
+		if requiredNodeCount < 1 {
+			requiredNodeCount = 1
+		}
+	default:
+		requiredNodeCount = 1
+	}
+
+	if len(nodesWithWeight) >= 3 {
+		var maxWeight, minWeight float64
+		first := true
+		for _, weight := range nodesWithWeight {
+			if first {
+				maxWeight = weight
+				minWeight = weight
+				first = false
 			} else {
-				delete(nodesWithWeight, nodeName)
+				if weight > maxWeight {
+					maxWeight = weight
+				}
+				if weight < minWeight {
+					minWeight = weight
+				}
 			}
 		}
-		for nodeName, weight := range nodesWithWeight {
-			if state, ok := nodeStatesMap[nodeName]; ok && state.Degraded {
-				nodesWithWeight[nodeName] = weight * state.DegradedFactor
+
+		if maxWeight > 0 && minWeight > 0 {
+			ratio := maxWeight / minWeight
+			switch {
+			case ratio >= 4.0:
+				requiredNodeCount = (requiredNodeCount * 2) / 3
+				if requiredNodeCount < 1 {
+					requiredNodeCount = 1
+				}
+			case ratio >= 2.0:
+				requiredNodeCount = (requiredNodeCount * 4) / 5
+				if requiredNodeCount < 1 {
+					requiredNodeCount = 1
+				}
+			case ratio >= 1.5:
+				requiredNodeCount = requiredNodeCount
+			case ratio < 1.3:
+				requiredNodeCount = requiredNodeCount + 1
+			}
+			if maxWeight < 0.8 {
+				requiredNodeCount = (requiredNodeCount * 3) / 4
+				if requiredNodeCount < 1 {
+					requiredNodeCount = 1
+				}
+			}
+			if maxWeight > 2.5 && ratio >= 1.8 {
+				requiredNodeCount = (requiredNodeCount * 3) / 4
+				if requiredNodeCount < 1 {
+					requiredNodeCount = 1
+				}
 			}
 		}
 	}
 
-	var requiredNodeCount int
-	if asnMode {
-		baseCount := func() int {
-			switch {
-			case availableNodesCount <= 5:
-				return 1
-			case availableNodesCount <= 10:
-				return 2
-			case availableNodesCount <= 20:
-				return 3
-			case availableNodesCount <= 50:
-				return 4
-			default:
-				return 5
-			}
-		}()
-		coverageRatio := 0.0
-		if availableNodesCount > 0 {
-			coverageRatio = float64(len(nodesWithWeight)) / float64(availableNodesCount)
-		}
-		switch {
-		case coverageRatio >= 0.6:
-			requiredNodeCount = baseCount + 1
-		case coverageRatio >= 0.3:
-			requiredNodeCount = baseCount
-		case coverageRatio >= 0.1:
-			requiredNodeCount = (baseCount * 2) / 3
-			if requiredNodeCount < 1 {
-				requiredNodeCount = 1
-			}
-		default:
+	if requiredNodeCount > len(nodesWithWeight) {
+		requiredNodeCount = len(nodesWithWeight)
+	}
+
+	if requiredNodeCount > availableNodesCount/2 {
+		requiredNodeCount = availableNodesCount / 2
+		if requiredNodeCount < 1 {
 			requiredNodeCount = 1
-		}
-		if len(nodesWithWeight) >= 3 {
-			var maxWeight, minWeight float64
-			first := true
-			for _, weight := range nodesWithWeight {
-				if first {
-					maxWeight = weight
-					minWeight = weight
-					first = false
-				} else {
-					if weight > maxWeight {
-						maxWeight = weight
-					}
-					if weight < minWeight {
-						minWeight = weight
-					}
-				}
-			}
-			if maxWeight > 0 && minWeight > 0 {
-				ratio := maxWeight / minWeight
-				switch {
-				case ratio >= 4.0:
-					requiredNodeCount = (requiredNodeCount * 2) / 3
-					if requiredNodeCount < 1 {
-						requiredNodeCount = 1
-					}
-				case ratio >= 2.0:
-					requiredNodeCount = (requiredNodeCount * 4) / 5
-					if requiredNodeCount < 1 {
-						requiredNodeCount = 1
-					}
-				case ratio >= 1.5:
-					requiredNodeCount = requiredNodeCount
-				case ratio < 1.3:
-					requiredNodeCount = requiredNodeCount + 1
-				}
-				if maxWeight < 0.8 {
-					requiredNodeCount = (requiredNodeCount * 3) / 4
-					if requiredNodeCount < 1 {
-						requiredNodeCount = 1
-					}
-				}
-				if maxWeight > 2.5 && ratio >= 1.8 {
-					requiredNodeCount = (requiredNodeCount * 3) / 4
-					if requiredNodeCount < 1 {
-						requiredNodeCount = 1
-					}
-				}
-			}
-		}
-		if requiredNodeCount > len(nodesWithWeight) {
-			requiredNodeCount = len(nodesWithWeight)
-		}
-		if requiredNodeCount > availableNodesCount/2 {
-			requiredNodeCount = availableNodesCount / 2
-			if requiredNodeCount < 1 {
-				requiredNodeCount = 1
-			}
-		}
-	} else {
-		switch {
-		case availableNodesCount < 10:
-			requiredNodeCount = availableNodesCount / 2
-			if requiredNodeCount < 1 {
-				requiredNodeCount = 1
-			}
-		case availableNodesCount < 30:
-			requiredNodeCount = availableNodesCount / 4
-		case availableNodesCount > 50 && len(nodesWithWeight) > 0 && float64(len(nodesWithWeight))/float64(availableNodesCount) < 0.1:
-			requiredNodeCount = 4
-		case availableNodesCount > 100 && len(nodesWithWeight) > 0 && float64(len(nodesWithWeight))/float64(availableNodesCount) < 0.05:
-			requiredNodeCount = 2
-		default:
-			requiredNodeCount = 5
 		}
 	}
 
@@ -1040,11 +1037,9 @@ func (s *Store) RunPrefetch(group, config string, proxyMap map[string]string) in
 	// 域名
 	for _, item := range domainItems {
 		oldNode, oldWeight := s.GetPrefetchResult(group, config, item.target, item.weightType)
-		if item.bestWeight == 0 {
-			continue
-		}
 		newWeight := math.Round(item.bestWeight*100) / 100
 		oldWeightRounded := math.Round(oldWeight*100) / 100
+
 		if oldNode == "" {
 			s.StorePrefetchResult(group, config, item.target, item.weightType, item.bestNode, item.bestWeight)
 			prefetchDomains++
@@ -1052,6 +1047,7 @@ func (s *Store) RunPrefetch(group, config string, proxyMap map[string]string) in
 				item.target, item.bestNode, group, item.weightType, item.bestWeight)
 			continue
 		}
+
 		if oldNode == item.bestNode {
 			if newWeight != oldWeightRounded {
 				s.StorePrefetchResult(group, config, item.target, item.weightType, item.bestNode, item.bestWeight)
@@ -1070,9 +1066,6 @@ func (s *Store) RunPrefetch(group, config string, proxyMap map[string]string) in
 	// ASN
 	for _, item := range asnItems {
 		oldNode, oldWeight := s.GetPrefetchResult(group, config, item.target, item.weightType)
-		if item.bestWeight == 0 {
-			continue
-		}
 		newWeight := math.Round(item.bestWeight*100) / 100
 		oldWeightRounded := math.Round(oldWeight*100) / 100
 		if oldNode == "" {
@@ -1082,6 +1075,7 @@ func (s *Store) RunPrefetch(group, config string, proxyMap map[string]string) in
 				item.target, item.bestNode, group, item.weightType, item.bestWeight)
 			continue
 		}
+
 		if oldNode == item.bestNode {
 			if newWeight != oldWeightRounded {
 				s.StorePrefetchResult(group, config, item.target, item.weightType, item.bestNode, item.bestWeight)
@@ -1412,7 +1406,7 @@ func (s *Store) DeleteDomainRecords(group, config, domain string) error {
 	return s.DeleteByPath(key)
 }
 
-// 获取配置中的所有组
+// 获取缓存中的所有组名
 func (s *Store) GetAllGroupsForConfig(config string) ([]string, error) {
 	groupsMap := make(map[string]bool)
 

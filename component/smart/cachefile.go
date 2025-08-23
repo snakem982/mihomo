@@ -23,14 +23,26 @@ import (
 	"github.com/metacubex/mihomo/log"
 )
 
+var (
+	opMapPool = sync.Pool{
+		New: func() interface{} {
+			return make(map[string][]byte, 64)
+		},
+	}
+
+	cacheUpdatePool = sync.Pool{
+		New: func() interface{} {
+			return make(map[string]interface{}, 64)
+		},
+	}
+)
+
 type Store struct {
 	db                   *bbolt.DB
 	networkFailureStatus map[string]bool
 	failureStatusLock    sync.RWMutex
 	successCount         map[string]int
 	lastNetworkFailure   map[string]time.Time
-	instanceLock         sync.Mutex
-	groupInstances       map[string]bool
 }
 
 func NewStore(db *bbolt.DB) *Store {
@@ -39,7 +51,6 @@ func NewStore(db *bbolt.DB) *Store {
 		networkFailureStatus: make(map[string]bool),
 		successCount:         make(map[string]int),
 		lastNetworkFailure:   make(map[string]time.Time),
-		groupInstances:       make(map[string]bool),
 	}
 
 	globalQueueMutex.Lock()

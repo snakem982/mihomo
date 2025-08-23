@@ -76,7 +76,7 @@ func (p *path) Config() string {
 	return p.configFile
 }
 
-// Resolve returns an absolute path or a relative path with homedir
+// Resolve return a absolute path or a relative path with homedir
 func (p *path) Resolve(path string) string {
 	if !filepath.IsAbs(path) {
 		return filepath.Join(p.HomeDir(), path)
@@ -223,5 +223,20 @@ func (p *path) GetExecutableFullPath() string {
 }
 
 func (p *path) SmartModel() string {
-	return P.Join(p.homeDir, SmartmodelName)
+	files, err := os.ReadDir(p.homeDir)
+	if err != nil {
+		return ""
+	}
+	for _, fi := range files {
+		if fi.IsDir() {
+			// 目录则直接跳过
+			continue
+		} else {
+			if strings.EqualFold(fi.Name(), "Model.bin") {
+				SmartmodelName = fi.Name()
+				return P.Join(p.homeDir, fi.Name())
+			}
+		}
+	}
+	return P.Join(p.homeDir, "Model.bin")
 }
