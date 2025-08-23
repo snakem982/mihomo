@@ -305,7 +305,7 @@ func (s *Store) AdjustCacheParameters() {
 
 	globalCacheParams.LastMemoryUsage = memoryUsage
 
-	if !needAdjust && !isFirstRun {
+	if !needAdjust {
 		globalCacheParams.mutex.Unlock()
 		return
 	}
@@ -406,8 +406,14 @@ func (s *Store) AdjustCacheParameters() {
 			}
 		}
 
+		entryCount := len(entries)
+		var preservedRatio float64
+		if entryCount > 0 {
+			preservedRatio = float64(dataCount) / float64(entryCount) * 100
+		}
+
 		log.Infoln("[SmartStore] Cache adjusted: preserved %d/%d items (%.1f%%) under memory pressure %.1f%%",
-			dataCount, len(entries), float64(dataCount)/float64(len(entries))*100, memoryUsagePercent)
+			dataCount, entryCount, preservedRatio, memoryUsagePercent)
 	}
 
 	globalCacheLock.Lock()
