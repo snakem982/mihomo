@@ -1,0 +1,308 @@
+package encryption
+
+import (
+	"bytes"
+	"crypto/cipher"
+	"crypto/ecdh"
+	"crypto/rand"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"sync"
+	"time"
+
+	"github.com/metacubex/utls/mlkem"
+	"golang.org/x/crypto/sha3"
+)
+
+type ServerSession struct {
+	expire  time.Time
+	cipher  byte
+	baseKey []byte
+	randoms sync.Map
+}
+
+type ServerInstance struct {
+	sync.RWMutex
+	nfsDKey  *mlkem.DecapsulationKey768
+	hash11   [11]byte // no more capacity
+	xorMode  uint32
+	xorSKey  *ecdh.PrivateKey
+	minutes  time.Duration
+	sessions map[[32]byte]*ServerSession
+	closed   bool
+}
+
+type ServerConn struct {
+	net.Conn
+	cipher     byte
+	baseKey    []byte
+	ticket     []byte
+	peerRandom []byte
+	peerAEAD   cipher.AEAD
+	peerNonce  []byte
+	input      bytes.Reader // peerCache
+	aead       cipher.AEAD
+	nonce      []byte
+}
+
+func (i *ServerInstance) Init(nfsDKeySeed, xorSKeyBytes []byte, xorMode, minutes uint32) (err error) {
+	if i.nfsDKey != nil {
+		err = errors.New("already initialized")
+		return
+	}
+	if i.nfsDKey, err = mlkem.NewDecapsulationKey768(nfsDKeySeed); err != nil {
+		return
+	}
+	if xorMode > 0 {
+		i.xorMode = xorMode
+		if i.xorSKey, err = ecdh.X25519().NewPrivateKey(xorSKeyBytes); err != nil {
+			return
+		}
+		hash32 := sha3.Sum256(i.nfsDKey.EncapsulationKey().Bytes())
+		copy(i.hash11[:], hash32[:])
+	}
+	if minutes > 0 {
+		i.minutes = time.Duration(minutes) * time.Minute
+		i.sessions = make(map[[32]byte]*ServerSession)
+		go func() {
+			for {
+				time.Sleep(time.Minute)
+				i.Lock()
+				if i.closed {
+					i.Unlock()
+					return
+				}
+				now := time.Now()
+				for ticket, session := range i.sessions {
+					if now.After(session.expire) {
+						delete(i.sessions, ticket)
+					}
+				}
+				i.Unlock()
+			}
+		}()
+	}
+	return
+}
+
+func (i *ServerInstance) Close() (err error) {
+	i.Lock()
+	i.closed = true
+	i.Unlock()
+	return
+}
+
+func (i *ServerInstance) Handshake(conn net.Conn) (*ServerConn, error) {
+	if i.nfsDKey == nil {
+		return nil, errors.New("uninitialized")
+	}
+	if i.xorMode > 0 {
+		var err error
+		if conn, err = NewXorConn(conn, i.xorMode, nil, i.xorSKey); err != nil {
+			return nil, err
+		}
+	}
+	c := &ServerConn{Conn: conn}
+
+	_, t, l, err := ReadAndDiscardPaddings(c.Conn, nil, nil) // allow paddings before client/ticket hello
+	if err != nil {
+		return nil, err
+	}
+
+	if t == 0 {
+		if i.minutes == 0 {
+			return nil, errors.New("0-RTT is not allowed")
+		}
+		peerTicketHello := make([]byte, 32+32)
+		if l != len(peerTicketHello) {
+			return nil, fmt.Errorf("unexpected length %v for ticket hello", l)
+		}
+		if _, err := io.ReadFull(c.Conn, peerTicketHello); err != nil {
+			return nil, err
+		}
+		if !bytes.Equal(peerTicketHello[:11], i.hash11[:]) {
+			return nil, fmt.Errorf("unexpected hash11: %v", peerTicketHello[:11])
+		}
+		i.RLock()
+		s := i.sessions[[32]byte(peerTicketHello)]
+		i.RUnlock()
+		if s == nil {
+			noises := make([]byte, randBetween(100, 1000))
+			var err error
+			for err == nil {
+				rand.Read(noises)
+				_, _, err = DecodeHeader(noises)
+			}
+			c.Conn.Write(noises) // make client do new handshake
+			return nil, errors.New("expired ticket")
+		}
+		if _, replay := s.randoms.LoadOrStore([32]byte(peerTicketHello[32:]), true); replay {
+			return nil, errors.New("replay detected")
+		}
+		c.cipher = s.cipher
+		c.baseKey = s.baseKey
+		c.ticket = peerTicketHello[:32]
+		c.peerRandom = peerTicketHello[32:]
+		return c, nil
+	}
+
+	peerClientHello := make([]byte, 11+1+1184+1088)
+	if l != len(peerClientHello) {
+		return nil, fmt.Errorf("unexpected length %v for client hello", l)
+	}
+	if _, err := io.ReadFull(c.Conn, peerClientHello); err != nil {
+		return nil, err
+	}
+	if !bytes.Equal(peerClientHello[:11], i.hash11[:]) {
+		return nil, fmt.Errorf("unexpected hash11: %v", peerClientHello[:11])
+	}
+	c.cipher = peerClientHello[11]
+	pfsEKeyBytes := peerClientHello[11+1 : 11+1+1184]
+	encapsulatedNfsKey := peerClientHello[11+1+1184:]
+
+	pfsEKey, err := mlkem.NewEncapsulationKey768(pfsEKeyBytes)
+	if err != nil {
+		return nil, err
+	}
+	nfsKey, err := i.nfsDKey.Decapsulate(encapsulatedNfsKey)
+	if err != nil {
+		return nil, err
+	}
+	nfsAEAD := NewAEAD(c.cipher, nfsKey, pfsEKeyBytes, encapsulatedNfsKey)
+	nfsNonce := append([]byte{}, peerClientHello[:11+1]...)
+	pfsKey, encapsulatedPfsKey := pfsEKey.Encapsulate()
+	c.baseKey = append(pfsKey, nfsKey...)
+	pfsAEAD := NewAEAD(c.cipher, c.baseKey, encapsulatedPfsKey, encapsulatedNfsKey)
+	pfsNonce := append([]byte{}, peerClientHello[:11+1]...)
+	c.ticket = append(i.hash11[:], pfsAEAD.Seal(nil, pfsNonce, []byte("VLESS"), pfsEKeyBytes)...)
+	IncreaseNonce(pfsNonce)
+
+	serverHello := make([]byte, 5+1088+21+randBetween(100, 1000))
+	EncodeHeader(serverHello, 1, 1088+21)
+	copy(serverHello[5:], encapsulatedPfsKey)
+	copy(serverHello[5+1088:], c.ticket[11:])
+	padding := serverHello[5+1088+21:]
+	rand.Read(padding) // important
+	EncodeHeader(padding, 23, len(padding)-5)
+	pfsAEAD.Seal(padding[:5], pfsNonce, padding[5:len(padding)-16], padding[:5])
+
+	if _, err := c.Conn.Write(serverHello); err != nil {
+		return nil, err
+	}
+	// server can send more PFS AEAD paddings / messages if needed
+
+	_, t, l, err = ReadAndDiscardPaddings(c.Conn, nfsAEAD, nfsNonce) // allow paddings before ticket hello
+	if err != nil {
+		return nil, err
+	}
+	if t != 0 {
+		return nil, fmt.Errorf("unexpected type %v, expect ticket hello", t)
+	}
+	peerTicketHello := make([]byte, 32+32)
+	if l != len(peerTicketHello) {
+		return nil, fmt.Errorf("unexpected length %v for ticket hello", l)
+	}
+	if _, err := io.ReadFull(c.Conn, peerTicketHello); err != nil {
+		return nil, err
+	}
+	if !bytes.Equal(peerTicketHello[:32], c.ticket) {
+		return nil, errors.New("naughty boy")
+	}
+	c.peerRandom = peerTicketHello[32:]
+
+	if i.minutes > 0 {
+		i.Lock()
+		s := &ServerSession{
+			expire:  time.Now().Add(i.minutes),
+			cipher:  c.cipher,
+			baseKey: c.baseKey,
+		}
+		s.randoms.Store([32]byte(c.peerRandom), true)
+		i.sessions[[32]byte(c.ticket)] = s
+		i.Unlock()
+	}
+
+	return c, nil
+}
+
+func (c *ServerConn) Read(b []byte) (int, error) {
+	if len(b) == 0 {
+		return 0, nil
+	}
+	if c.peerAEAD == nil {
+		c.peerAEAD = NewAEAD(c.cipher, c.baseKey, c.peerRandom, c.ticket)
+		c.peerNonce = make([]byte, 12)
+	}
+	if c.input.Len() > 0 {
+		return c.input.Read(b)
+	}
+	h, t, l, err := ReadAndDecodeHeader(c.Conn) // l: 17~17000
+	if err != nil {
+		return 0, err
+	}
+	if t != 23 {
+		return 0, fmt.Errorf("unexpected type %v, expect encrypted data", t)
+	}
+	peerData := make([]byte, l)
+	if _, err := io.ReadFull(c.Conn, peerData); err != nil {
+		return 0, err
+	}
+	dst := peerData[:l-16]
+	if len(dst) <= len(b) {
+		dst = b[:len(dst)] // avoids another copy()
+	}
+	var peerAEAD cipher.AEAD
+	if bytes.Equal(c.peerNonce, MaxNonce) {
+		peerAEAD = NewAEAD(c.cipher, c.baseKey, peerData, h)
+	}
+	_, err = c.peerAEAD.Open(dst[:0], c.peerNonce, peerData, h)
+	if peerAEAD != nil {
+		c.peerAEAD = peerAEAD
+	}
+	IncreaseNonce(c.peerNonce)
+	if err != nil {
+		return 0, err
+	}
+	if len(dst) > len(b) {
+		c.input.Reset(dst[copy(b, dst):])
+		dst = b // for len(dst)
+	}
+	return len(dst), nil
+}
+
+func (c *ServerConn) Write(b []byte) (int, error) {
+	if len(b) == 0 {
+		return 0, nil
+	}
+	var data []byte
+	for n := 0; n < len(b); {
+		b := b[n:]
+		if len(b) > 8192 {
+			b = b[:8192] // for avoiding another copy() in client's Read()
+		}
+		n += len(b)
+		if c.aead == nil {
+			data = make([]byte, 5+32+5+len(b)+16)
+			EncodeHeader(data, 0, 32)
+			rand.Read(data[5 : 5+32])
+			EncodeHeader(data[5+32:], 23, len(b)+16)
+			c.aead = NewAEAD(c.cipher, c.baseKey, data[5:5+32], c.peerRandom)
+			c.nonce = make([]byte, 12)
+			c.aead.Seal(data[:5+32+5], c.nonce, b, data[5+32:5+32+5])
+		} else {
+			data = make([]byte, 5+len(b)+16)
+			EncodeHeader(data, 23, len(b)+16)
+			c.aead.Seal(data[:5], c.nonce, b, data[:5])
+			if bytes.Equal(c.nonce, MaxNonce) {
+				c.aead = NewAEAD(c.cipher, c.baseKey, data[5:], data[:5])
+			}
+		}
+		IncreaseNonce(c.nonce)
+		if _, err := c.Conn.Write(data); err != nil {
+			return 0, err
+		}
+	}
+	return len(b), nil
+}

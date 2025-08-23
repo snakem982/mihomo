@@ -225,6 +225,9 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 				}
 				vless["flow"] = Tvless.XRV
 			}
+			if encryption := query.Get("encryption"); encryption != "" {
+				vless["encryption"] = encryption
+			}
 			proxies = append(proxies, vless)
 
 		case "vmess":
