@@ -2,8 +2,10 @@ package adapter
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"github.com/metacubex/mihomo/common/convert"
 	"net"
 	"net/http"
 	"net/url"
@@ -11,7 +13,6 @@ import (
 	"time"
 
 	"github.com/metacubex/mihomo/common/atomic"
-	"github.com/metacubex/mihomo/common/convert"
 	"github.com/metacubex/mihomo/common/queue"
 	"github.com/metacubex/mihomo/common/utils"
 	"github.com/metacubex/mihomo/common/xsync"
@@ -288,7 +289,7 @@ func (p *Proxy) URLTest(ctx context.Context, url string, expectedStatus utils.In
 		}
 	}
 
-	satisfied = expectedStatus == nil || expectedStatus.Check(uint16(resp.StatusCode))
+	satisfied = resp != nil && (expectedStatus == nil || expectedStatus.Check(uint16(resp.StatusCode)))
 	t = uint16(time.Since(start) / time.Millisecond)
 	return
 }
@@ -338,7 +339,6 @@ func (p *Proxy) StatusTest(ctx context.Context, url string, expectedStatus utils
 		IdleConnTimeout:       10 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
-		TLSClientConfig:       ca.GetGlobalTLSConfig(&tls.Config{}),
 	}
 
 	client := http.Client{

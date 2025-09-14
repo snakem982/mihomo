@@ -261,8 +261,9 @@ func NewShadowSocks(option ShadowSocksOption) (*ShadowSocks, error) {
 		if !strings.Contains(option.Cipher, "chacha20") {
 			return nil, fmt.Errorf("ss %s initialize error: %w", addr, err)
 		}
-		method, _ = shadowsocks.CreateMethod(context.Background(), "chacha20-ietf-poly1305", shadowsocks.MethodOptions{
+		method, _ = shadowsocks.CreateMethod("chacha20-ietf-poly1305", shadowsocks.MethodOptions{
 			Password: option.Password,
+			TimeFunc: ntp.Now,
 		})
 	}
 
