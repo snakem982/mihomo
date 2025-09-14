@@ -142,6 +142,7 @@ tun:
   # gso-max-size: 65536 # 通用分段卸载包的最大大小
   auto-redirect: false # 自动配置 iptables 以重定向 TCP 连接。仅支持 Linux。带有 auto-redirect 的 auto-route 现在可以在路由器上按预期工作，无需干预。
   # strict-route: true # 将所有连接路由到 tun 来防止泄漏，但你的设备将无法其他设备被访问
+  # disable-icmp-forwarding: true # 禁用 ICMP 转发，防止某些情况下的 ICMP 环回问题，ping 将不会显示真实的延迟
   route-address-set: # 将指定规则集中的目标 IP CIDR 规则添加到防火墙, 不匹配的流量将绕过路由, 仅支持 Linux，且需要 nftables，`auto-route` 和 `auto-redirect` 已启用。
     - ruleset-1
     - ruleset-2
@@ -610,7 +611,6 @@ proxies: # socks5
     uuid: uuid
     network: tcp
     servername: example.com # AKA SNI
-    # flow: xtls-rprx-direct # xtls-rprx-origin  # enable XTLS
     # skip-cert-verify: true
     # fingerprint: xxxx
     # client-fingerprint: random # Available: "chrome","firefox","safari","random","none"
@@ -640,10 +640,16 @@ proxies: # socks5
     network: tcp
     # -------------------------
     # vless encryption客户端配置：
-    # （native/xorpub 的 XTLS 可以 Splice。只使用 1-RTT 模式 / 若服务端发的 ticket 中秒数不为零则 0-RTT 复用）
+    # （native/xorpub 的 XTLS Vision 可以 Splice。只使用 1-RTT 模式 / 若服务端发的 ticket 中秒数不为零则 0-RTT 复用）
     # / 是只能选一个，后面 base64 至少一个，无限串联，使用  mihomo generate vless-x25519 和 mihomo generate vless-mlkem768 生成，替换值时需去掉括号
+    #
+    # Padding 是可选的参数，仅作用于 1-RTT 以消除握手的长度特征，双端默认值均为 "100-111-1111.75-0-111.50-0-3333"：
+    # 在 1-RTT client/server hello 后以 100% 的概率粘上随机 111 到 1111 字节的 padding
+    # 以 75% 的概率等待随机 0 到 111 毫秒（"probability-from-to"）
+    # 再次以 50% 的概率发送随机 0 到 3333 字节的 padding（若为 0 则不 Write()）
+    # 服务端、客户端可以设置不同的 padding 参数，按 len、gap 的顺序无限串联，第一个 padding 需概率 100%、至少 35 字节
     # -------------------------
-    encryption: "mlkem768x25519plus.native/xorpub/random.1rtt/0rtt.(X25519 Password).(ML-KEM-768 Client)..."
+    encryption: "mlkem768x25519plus.native/xorpub/random.1rtt/0rtt.(padding len).(padding gap).(X25519 Password).(ML-KEM-768 Client)..."
     tls: false #可以不开启tls
     udp: true
 
@@ -857,20 +863,25 @@ proxies: # socks5
     #   jmax: 501
     #   s1: 30
     #   s2: 40
-    #   h1: 123456
-    #   h2: 67543
-    #   h4: 32345
-    #   h3: 123123
-    #   # AmneziaWG v1.5
-    #   i1: <b 0xf6ab3267fa><c><b 0xf6ab><t><r 10><wt 10>
-    #   i2: <b 0xf6ab3267fa><r 100>
-    #   i3: ""
-    #   i4: ""
-    #   i5: ""
-    #   j1: <b 0xffffffff><c><b 0xf6ab><t><r 10>
-    #   j2: <c><b 0xf6ab><t><wt 1000>
-    #   j3: <t><b 0xf6ab><c><r 10>
-    #   itime: 60
+    #   s3: 50                                            # AmneziaWG v1.5 and v2
+    #   s4: 5                                             # AmneziaWG v1.5 and v2
+    #   h1: 123456                                        # AmneziaWG v1.0 and v1.5
+    #   h2: 67543                                         # AmneziaWG v1.0 and v1.5
+    #   h3: 123123                                        # AmneziaWG v1.0 and v1.5
+    #   h4: 32345                                         # AmneziaWG v1.0 and v1.5
+    #   h1: 123456-123500                                 # AmneziaWG v2.0 only
+    #   h2: 67543-67550                                   # AmneziaWG v2.0 only
+    #   h3: 123123-123200                                 # AmneziaWG v2.0 only
+    #   h4: 32345-32350                                   # AmneziaWG v2.0 only
+    #   i1: <b 0xf6ab3267fa><c><b 0xf6ab><t><r 10><wt 10> # AmneziaWG v1.5 and v2
+    #   i2: <b 0xf6ab3267fa><r 100>                       # AmneziaWG v1.5 and v2
+    #   i3: ""                                            # AmneziaWG v1.5 and v2
+    #   i4: ""                                            # AmneziaWG v1.5 and v2
+    #   i5: ""                                            # AmneziaWG v1.5 and v2
+    #   j1: <b 0xffffffff><c><b 0xf6ab><t><r 10>          # AmneziaWG v1.5 only (removed in v2)
+    #   j2: <c><b 0xf6ab><t><wt 1000>                     # AmneziaWG v1.5 only (removed in v2)
+    #   j3: <t><b 0xf6ab><c><r 10>                        # AmneziaWG v1.5 only (removed in v2)
+    #   itime: 60                                         # AmneziaWG v1.5 only (removed in v2)
 
   # tuic
   - name: tuic
@@ -1365,10 +1376,17 @@ listeners:
     # grpc-service-name: "GunService" # 如果不为空则开启 grpc 传输层
     # -------------------------
     # vless encryption服务端配置：
-    # （原生外观 / 只 XOR 公钥 / 全随机数。只允许 1-RTT 模式 / 同时允许 1-RTT 模式与 600 秒复用的 0-RTT 模式）
+    # （原生外观 / 只 XOR 公钥 / 全随机数。1-RTT 每次下发随机 300 到 600 秒的 ticket 以便 0-RTT 复用 / 只允许 1-RTT）
+    # 填写 "600s" 会每次随机取 50% 到 100%，即相当于填写 "300-600s"
     # / 是只能选一个，后面 base64 至少一个，无限串联，使用 mihomo generate vless-x25519 和 mihomo generate vless-mlkem768 生成，替换值时需去掉括号
+    #
+    # Padding 是可选的参数，仅作用于 1-RTT 以消除握手的长度特征，双端默认值均为 "100-111-1111.75-0-111.50-0-3333"：
+    # 在 1-RTT client/server hello 后以 100% 的概率粘上随机 111 到 1111 字节的 padding
+    # 以 75% 的概率等待随机 0 到 111 毫秒（"probability-from-to"）
+    # 再次以 50% 的概率发送随机 0 到 3333 字节的 padding（若为 0 则不 Write()）
+    # 服务端、客户端可以设置不同的 padding 参数，按 len、gap 的顺序无限串联，第一个 padding 需概率 100%、至少 35 字节
     # -------------------------
-    # decryption: "mlkem768x25519plus.native/xorpub/random.1rtt/600s.(X25519 PrivateKey).(ML-KEM-768 Seed)..."
+    # decryption: "mlkem768x25519plus.native/xorpub/random.600s(300-600s)/0s.(padding len).(padding gap).(X25519 PrivateKey).(ML-KEM-768 Seed)..."
     # 下面两项如果填写则开启 tls（需要同时填写）
     # certificate: ./server.crt
     # private-key: ./server.key
@@ -1537,6 +1555,7 @@ listeners:
     # - com.android.chrome
     # exclude-package: # 排除被路由的 Android 应用包名
     # - com.android.captiveportallogin
+    # disable-icmp-forwarding: true # 禁用 ICMP 转发，防止某些情况下的 ICMP 环回问题，ping 将不会显示真实的延迟
 # 入口配置与 Listener 等价，传入流量将和 socks,mixed 等入口一样按照 mode 所指定的方式进行匹配处理
 # shadowsocks,vmess 入口配置（传入流量将和 socks,mixed 等入口一样按照 mode 所指定的方式进行匹配处理）
 # ss-config: ss://2022-blake3-aes-256-gcm:vlmpIPSyHH6f4S8WVPdRIHIlzmB+GIRfoH3aNJ/t9Gg=@:23456
