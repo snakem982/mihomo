@@ -17,19 +17,19 @@ require (
 	github.com/klauspost/compress v1.17.9 // lastest version compatible with golang1.20
 	github.com/mdlayher/netlink v1.7.2
 	github.com/metacubex/amneziawg-go v0.0.0-20250902133113-a7f637c14281
-	github.com/metacubex/bart v0.24.0
+	github.com/metacubex/bart v0.26.0
 	github.com/metacubex/bbolt v0.0.0-20250725135710-010dbbbb7a5b
 	github.com/metacubex/blake3 v0.1.0
 	github.com/metacubex/chacha v0.1.5
 	github.com/metacubex/fswatch v0.1.1
 	github.com/metacubex/gopacket v1.1.20-0.20230608035415-7e2f98a3e759
-	github.com/metacubex/kcp-go v0.0.0-20250923001605-1ba6f691c45b
-	github.com/metacubex/quic-go v0.54.1-0.20250926001022-e2a3ce003b3a
+	github.com/metacubex/kcp-go v0.0.0-20251007183319-0df1aec1639a
+	github.com/metacubex/quic-go v0.55.1-0.20251024060151-bd465f127128
 	github.com/metacubex/randv2 v0.2.0
 	github.com/metacubex/restls-client-go v0.1.7
 	github.com/metacubex/sing v0.5.6
 	github.com/metacubex/sing-mux v0.3.4
-	github.com/metacubex/sing-quic v0.0.0-20250909002258-06122df8f231
+	github.com/metacubex/sing-quic v0.0.0-20251004051927-c45ee18473bb
 	github.com/metacubex/sing-shadowsocks v0.2.12
 	github.com/metacubex/sing-shadowsocks2 v0.2.7
 	github.com/metacubex/sing-shadowtls v0.0.0-20250503063515-5d9f966d17a2
@@ -37,8 +37,8 @@ require (
 	github.com/metacubex/sing-vmess v0.2.4
 	github.com/metacubex/sing-wireguard v0.0.0-20250503063753-2dc62acc626f
 	github.com/metacubex/smux v0.0.0-20250922175018-15c9a6a78719
-	github.com/metacubex/tfo-go v0.0.0-20250921095601-b102db4216c0
-	github.com/metacubex/utls v1.8.1
+	github.com/metacubex/tfo-go v0.0.0-20251024101424-368b42b59148
+	github.com/metacubex/utls v1.8.3
 	github.com/metacubex/wireguard-go v0.0.0-20250820062549-a6cecdd7f57f
 	github.com/miekg/dns v1.1.63 // lastest version compatible with golang1.20
 	github.com/mroth/weightedrand/v2 v2.1.0
@@ -107,7 +107,6 @@ require (
 	github.com/vishvananda/netns v0.0.4 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	gitlab.com/yawning/bsaes.git v0.0.0-20190805113838-0a714cd429ec // indirect
-	go.uber.org/mock v0.4.0 // indirect
 	golang.org/x/mod v0.20.0 // indirect
 	golang.org/x/text v0.22.0 // indirect
 	golang.org/x/time v0.7.0 // indirect
