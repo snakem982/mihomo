@@ -3,6 +3,7 @@ package atomic
 import (
 	"encoding/json"
 	"math"
+	"reflect"
 	"sync/atomic"
 )
 
@@ -86,20 +87,30 @@ func NewTypedValue[T any](t T) (v TypedValue[T]) {
 // TypedValue[map[K]V]
 func (t *TypedValue[T]) Update(f func(old T) (new T)) {
 	var zero T
+
+	rv := reflect.TypeOf(zero)
+	if rv != nil && rv.Kind() == reflect.Slice {
+		old := t.Load()
+		new := f(old)
+		t.Store(new)
+		return
+	}
+
 	switch any(zero).(type) {
 	case map[string]float64:
 		old := t.Load()
 		new := f(old)
 		t.Store(new)
 		return
-	}
-	for {
-		old := t.Load()
-		new := f(old)
-		if t.CompareAndSwap(old, new) {
-			return
+	default:
+		for {
+			old := t.Load()
+			new := f(old)
+			if t.CompareAndSwap(old, new) {
+				return
+			}
 		}
-	}
+}
 }
 
 func CloneMap[K comparable, V any](m map[K]V) map[K]V {
