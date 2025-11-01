@@ -674,6 +674,7 @@ func match(metadata *C.Metadata, helper C.RuleMatchHelper) (C.Proxy, C.Rule, err
 					break
 				}
 			}
+
 			if passed {
 				log.Debugln("%s match Pass rule", adapter.Name())
 				continue
@@ -701,7 +702,7 @@ func getRules(metadata *C.Metadata) []C.Rule {
 	}
 }
 
-func shouldStopRetry(err error) bool {
+func ShouldStopRetry(err error) bool {
 	if errors.Is(err, resolver.ErrIPNotFound) {
 		return true
 	}
@@ -725,7 +726,7 @@ func retry[T any](ctx context.Context, ft func(context.Context) (T, error), fe f
 			if fe != nil {
 				fe(err)
 			}
-			if shouldStopRetry(err) {
+			if ShouldStopRetry(err) {
 				return
 			}
 			if s.Wait(ctx) == nil {

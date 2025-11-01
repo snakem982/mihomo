@@ -20,10 +20,8 @@ import (
 )
 
 var (
-	collectMutex                 sync.Mutex
-	globalCollector              *DataCollector
-	collectorInitOnce            sync.Once
-	configuredSmartCollectorSize int64
+	collectMutex   sync.Mutex
+	smartCollector *DataCollector
 )
 
 type DataCollector struct {
@@ -37,39 +35,31 @@ type DataCollector struct {
 }
 
 const (
-	defaultSmartCollectorSize = 100 * 1024 * 1024
+	defaultSmartCollectorSize = 64 * 1024 * 1024
 )
 
-func SetSmartCollectorSize(sizeMB float64) {
-	collectMutex.Lock()
-	defer collectMutex.Unlock()
-
-	if sizeMB <= 0 {
-		configuredSmartCollectorSize = defaultSmartCollectorSize
-		return
+func InitCollector(collectSize float64) {
+	var smartCollectorSize int64
+	if collectSize > 0 {
+		smartCollectorSize = int64(collectSize * 1024 * 1024)
+	} else {
+		smartCollectorSize = defaultSmartCollectorSize
 	}
 
-	configuredSmartCollectorSize = int64(sizeMB * 1024 * 1024)
+	smartCollector = &DataCollector{
+		dataPath:           filepath.Join(C.Path.HomeDir(), "/smart/smart_weight_data.csv"),
+		smartCollectorSize: smartCollectorSize,
+	}
+
+	log.Infoln("[Smart] Data collector initialized, max file size: %d MB", smartCollector.smartCollectorSize/(1024*1024))
 }
 
 func GetCollector() *DataCollector {
-	collectorInitOnce.Do(func() {
-		smartCollectorSize := configuredSmartCollectorSize
-		if smartCollectorSize <= 0 {
-			smartCollectorSize = defaultSmartCollectorSize
-		}
-
-		globalCollector = &DataCollector{
-			dataPath:           filepath.Join(C.Path.HomeDir(), "/smart/smart_weight_data.csv"),
-			smartCollectorSize: smartCollectorSize,
-		}
-	})
-
-	return globalCollector
+	return smartCollector
 }
 
 func (c *DataCollector) AddSample(input *ModelInput, metadata *C.Metadata, actualWeight float64, weightSource string) {
-	if c == nil || metadata == nil || input == nil {
+	if c == nil || input == nil {
 		return
 	}
 
@@ -292,7 +282,7 @@ func CloseAllCollectors() {
 	collectMutex.Lock()
 	defer collectMutex.Unlock()
 
-	if globalCollector != nil {
-		globalCollector.Close()
+	if smartCollector != nil {
+		smartCollector.Close()
 	}
 }

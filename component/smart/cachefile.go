@@ -15,7 +15,6 @@ import (
 	"math/rand"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/metacubex/bbolt"
 	"github.com/metacubex/mihomo/common/batch"
@@ -36,32 +35,6 @@ var (
 		},
 	}
 )
-
-type Store struct {
-	db                   *bbolt.DB
-	networkFailureStatus map[string]bool
-	failureStatusLock    sync.RWMutex
-	successCount         map[string]int
-	lastNetworkFailure   map[string]time.Time
-}
-
-func NewStore(db *bbolt.DB) *Store {
-	s := &Store{
-		db:                   db,
-		networkFailureStatus: make(map[string]bool),
-		successCount:         make(map[string]int),
-		lastNetworkFailure:   make(map[string]time.Time),
-	}
-
-	globalQueueMutex.Lock()
-	if globalOperationQueue == nil {
-		threshold := GetBatchSaveThreshold()
-		globalOperationQueue = make([]StoreOperation, 0, threshold)
-	}
-	globalQueueMutex.Unlock()
-
-	return s
-}
 
 // BatchSave 批量保存操作
 func (s *Store) BatchSave(operations []StoreOperation) error {
@@ -108,9 +81,9 @@ func (s *Store) BatchSave(operations []StoreOperation) error {
 				case OpSaveNodeState:
 					key = FormatDBKey("smart", KeyTypeNode, op.Config, op.Group, op.Node)
 				case OpSaveStats:
-					key = FormatDBKey("smart", KeyTypeStats, op.Config, op.Group, op.Domain, op.Node)
+					key = FormatDBKey("smart", KeyTypeStats, op.Config, op.Group, op.Target, op.Node)
 				case OpSavePrefetch:
-					key = FormatDBKey("smart", KeyTypePrefetch, op.Config, op.Group, op.Domain)
+					key = FormatDBKey("smart", KeyTypePrefetch, op.Config, op.Group, op.Target)
 				case OpSaveRanking:
 					key = FormatDBKey("smart", KeyTypeRanking, op.Config, op.Group, "")
 				}
@@ -124,28 +97,17 @@ func (s *Store) BatchSave(operations []StoreOperation) error {
 					switch op.Type {
 					case OpSaveNodeState:
 						cacheKey = FormatCacheKey(KeyTypeNode, op.Config, op.Group, op.Node)
-						var nodeState NodeState
-						if json.Unmarshal(op.Data, &nodeState) == nil {
-							cacheUpdatesSync.Store(cacheKey, nodeState)
-						}
 					case OpSaveStats:
-						cacheKey = FormatCacheKey(KeyTypeStats, op.Config, op.Group, op.Domain, op.Node)
-						var record StatsRecord
-						if json.Unmarshal(op.Data, &record) == nil {
-							cacheUpdatesSync.Store(cacheKey, record)
-						}
+						cacheKey = FormatCacheKey(KeyTypeStats, op.Config, op.Group, op.Target, op.Node)
 					case OpSavePrefetch:
-						cacheKey = FormatCacheKey(KeyTypePrefetch, op.Config, op.Group, op.Domain)
-						var prefetchMap map[string]interface{}
-						if json.Unmarshal(op.Data, &prefetchMap) == nil {
-							cacheUpdatesSync.Store(cacheKey, prefetchMap)
-						}
+						cacheKey = FormatCacheKey(KeyTypePrefetch, op.Config, op.Group, op.Target)
 					case OpSaveRanking:
 						cacheKey = FormatCacheKey(KeyTypeRanking, op.Config, op.Group, "")
-						var rankingData RankingData
-						if json.Unmarshal(op.Data, &rankingData) == nil {
-							cacheUpdatesSync.Store(cacheKey, rankingData)
-						}
+					}
+					if cacheKey != "" {
+						cacheData := make([]byte, len(dataCopy))
+						copy(cacheData, dataCopy)
+						cacheUpdatesSync.Store(cacheKey, cacheData)
 					}
 				}
 			}
@@ -166,7 +128,7 @@ func (s *Store) BatchSave(operations []StoreOperation) error {
 	})
 
 	var err error
-	err = s.db.Batch(func(tx *bbolt.Tx) error {
+	err = db.Batch(func(tx *bbolt.Tx) error {
 		bucket, err := tx.CreateBucketIfNotExists(bucketSmartStats)
 		if err != nil {
 			return err
@@ -200,37 +162,36 @@ func (s *Store) BatchSaveConnStats(operations []StoreOperation) error {
 		return nil
 	}
 
-	globalQueueMutex.RLock()
-	existingOps := make([]StoreOperation, len(globalOperationQueue))
-	copy(existingOps, globalOperationQueue)
-	globalQueueMutex.RUnlock()
+	existingOps := getGlobalQueueSnapshot()
+	existingOpsCopy := make([]StoreOperation, len(existingOps))
+	copy(existingOpsCopy, existingOps)
 
-	initialMapSize := len(existingOps) + len(operations)
+	initialMapSize := len(existingOpsCopy) + len(operations)
 	opMap := make(map[string]*StoreOperation, initialMapSize)
 	lookupToKeys := make(map[string][]string, initialMapSize/2)
 	cacheBatch := sync.Map{}
 
-	for i, op := range existingOps {
+	for i, op := range existingOpsCopy {
 		var opKey string
 		var lookupKey string
 
 		if op.Type == OpSaveStats {
-			lookupKey = fmt.Sprintf("%s:%s:%s:%s", op.Group, op.Config, op.Domain, op.Node)
+			lookupKey = fmt.Sprintf("%s:%s:%s:%s", op.Group, op.Config, op.Target, op.Node)
 			opKey = fmt.Sprintf("%s:%d", lookupKey, i)
 		} else {
-			lookupKey = fmt.Sprintf("%d:%s:%s:%s:%s", op.Type, op.Group, op.Config, op.Domain, op.Node)
+			lookupKey = fmt.Sprintf("%d:%s:%s:%s:%s", op.Type, op.Group, op.Config, op.Target, op.Node)
 			opKey = fmt.Sprintf("%s:%d", lookupKey, i)
 		}
 
-		opMap[opKey] = &existingOps[i]
+		opMap[opKey] = &existingOpsCopy[i]
 	}
 
 	for opKey, op := range opMap {
 		var lookupKey string
 		if op.Type == OpSaveStats {
-			lookupKey = fmt.Sprintf("%s:%s:%s:%s", op.Group, op.Config, op.Domain, op.Node)
+			lookupKey = fmt.Sprintf("%s:%s:%s:%s", op.Group, op.Config, op.Target, op.Node)
 		} else {
-			lookupKey = fmt.Sprintf("%d:%s:%s:%s:%s", op.Type, op.Group, op.Config, op.Domain, op.Node)
+			lookupKey = fmt.Sprintf("%d:%s:%s:%s:%s", op.Type, op.Group, op.Config, op.Target, op.Node)
 		}
 		lookupToKeys[lookupKey] = append(lookupToKeys[lookupKey], opKey)
 	}
@@ -238,27 +199,26 @@ func (s *Store) BatchSaveConnStats(operations []StoreOperation) error {
 	concurrency := 2
 	batchSize := 100
 
-	b, _ := batch.New[StoreOperation](context.Background(), batch.WithConcurrencyNum[StoreOperation](concurrency))
-	processGroup := singleflight.Group[StoreOperation]{}
+	b, _ := batch.New[struct{}](context.Background(), batch.WithConcurrencyNum[struct{}](concurrency))
+	processGroup := singleflight.Group[struct{}]{}
 
 	for batchStart := 0; batchStart < len(operations); batchStart += batchSize {
 		batchEnd := batchStart + batchSize
-
 		if batchEnd > len(operations) {
 			batchEnd = len(operations)
 		}
 
 		batchIndex := batchStart
-		b.Go(fmt.Sprintf("batch-%d", batchIndex/batchSize), func() (StoreOperation, error) {
+		b.Go(fmt.Sprintf("batch-%d", batchIndex/batchSize), func() (struct{}, error) {
 			start, end := batchIndex, batchEnd
 			for i := start; i < end; i++ {
 				op := operations[i]
 				var lookupKey string
 
 				if op.Type == OpSaveStats {
-					lookupKey = fmt.Sprintf("%s:%s:%s:%s", op.Group, op.Config, op.Domain, op.Node)
+					lookupKey = fmt.Sprintf("%s:%s:%s:%s", op.Group, op.Config, op.Target, op.Node)
 
-					processGroup.Do(lookupKey, func() (StoreOperation, error) {
+					processGroup.Do(lookupKey, func() (struct{}, error) {
 						matchingKeys, found := lookupToKeys[lookupKey]
 						if !found || len(matchingKeys) == 0 {
 							newKey := fmt.Sprintf("%s:%d", lookupKey, len(opMap))
@@ -266,19 +226,19 @@ func (s *Store) BatchSaveConnStats(operations []StoreOperation) error {
 							lookupToKeys[lookupKey] = append(lookupToKeys[lookupKey], newKey)
 
 							if op.Data != nil {
-								cacheKey := FormatCacheKey(KeyTypeStats, op.Config, op.Group, op.Domain, op.Node)
-								var record StatsRecord
-								if json.Unmarshal(op.Data, &record) == nil {
-									cacheBatch.Store(cacheKey, &record)
-								}
+								cacheKey := FormatCacheKey(KeyTypeStats, op.Config, op.Group, op.Target, op.Node)
+								dataCopy := make([]byte, len(op.Data))
+								copy(dataCopy, op.Data)
+								cacheBatch.Store(cacheKey, dataCopy)
 							}
-							return op, nil
+							return struct{}{}, nil
 						}
 
 						existingOp := opMap[matchingKeys[0]]
 						var existingRecord, newRecord StatsRecord
 
-						if json.Unmarshal(existingOp.Data, &existingRecord) == nil &&
+						if existingOp.Data != nil && op.Data != nil &&
+							json.Unmarshal(existingOp.Data, &existingRecord) == nil &&
 							json.Unmarshal(op.Data, &newRecord) == nil {
 
 							oldWeights := make(map[string]float64, len(existingRecord.Weights))
@@ -313,15 +273,15 @@ func (s *Store) BatchSaveConnStats(operations []StoreOperation) error {
 							if err == nil {
 								existingOp.Data = mergedData
 
-								cacheKey := FormatCacheKey(KeyTypeStats, op.Config, op.Group, op.Domain, op.Node)
-								cacheBatch.Store(cacheKey, &existingRecord)
+								cacheKey := FormatCacheKey(KeyTypeStats, op.Config, op.Group, op.Target, op.Node)
+								cacheBatch.Store(cacheKey, mergedData)
 							}
 						}
 
-						return *existingOp, nil
+						return struct{}{}, nil
 					})
 				} else {
-					lookupKey = fmt.Sprintf("%d:%s:%s:%s:%s", op.Type, op.Group, op.Config, op.Domain, op.Node)
+					lookupKey = fmt.Sprintf("%d:%s:%s:%s:%s", op.Type, op.Group, op.Config, op.Target, op.Node)
 
 					newKey := fmt.Sprintf("%s:%d", lookupKey, len(opMap))
 					opMap[newKey] = &op
@@ -332,27 +292,24 @@ func (s *Store) BatchSaveConnStats(operations []StoreOperation) error {
 						switch op.Type {
 						case OpSaveNodeState:
 							cacheKey = FormatCacheKey(KeyTypeNode, op.Config, op.Group, op.Node)
-							var nodeState NodeState
-							if json.Unmarshal(op.Data, &nodeState) == nil {
-								cacheBatch.Store(cacheKey, nodeState)
-							}
+							dataCopy := make([]byte, len(op.Data))
+							copy(dataCopy, op.Data)
+							cacheBatch.Store(cacheKey, dataCopy)
 						case OpSavePrefetch:
-							cacheKey = FormatCacheKey(KeyTypePrefetch, op.Config, op.Group, op.Domain)
-							var prefetchMap map[string]interface{}
-							if json.Unmarshal(op.Data, &prefetchMap) == nil {
-								cacheBatch.Store(cacheKey, prefetchMap)
-							}
+							cacheKey = FormatCacheKey(KeyTypePrefetch, op.Config, op.Group, op.Target)
+							dataCopy := make([]byte, len(op.Data))
+							copy(dataCopy, op.Data)
+							cacheBatch.Store(cacheKey, dataCopy)
 						case OpSaveRanking:
 							cacheKey = FormatCacheKey(KeyTypeRanking, op.Config, op.Group, "")
-							var rankingData RankingData
-							if json.Unmarshal(op.Data, &rankingData) == nil {
-								cacheBatch.Store(cacheKey, rankingData)
-							}
+							dataCopy := make([]byte, len(op.Data))
+							copy(dataCopy, op.Data)
+							cacheBatch.Store(cacheKey, dataCopy)
 						}
 					}
 				}
 			}
-			return StoreOperation{}, nil
+			return struct{}{}, nil
 		})
 	}
 
@@ -364,15 +321,11 @@ func (s *Store) BatchSaveConnStats(operations []StoreOperation) error {
 		newQueue = append(newQueue, *op)
 	}
 
-	globalQueueMutex.Lock()
-	globalOperationQueue = newQueue
+	replaceGlobalQueue(newQueue)
 
-	globalCacheParams.mutex.RLock()
-	currentThreshold := globalCacheParams.BatchSaveThreshold
-	globalCacheParams.mutex.RUnlock()
+	currentThreshold := GetBatchSaveThreshold()
 
-	needFlush := len(globalOperationQueue) >= currentThreshold
-	globalQueueMutex.Unlock()
+	needFlush := len(newQueue) >= currentThreshold
 
 	cacheUpdates := make(map[string]interface{}, len(opMap)/2)
 	cacheBatch.Range(func(key, value interface{}) bool {
@@ -395,32 +348,23 @@ func (s *Store) BatchSaveConnStats(operations []StoreOperation) error {
 
 // 刷新队列中的操作到数据库
 func (s *Store) FlushQueue(isThresholdTriggered bool) {
-	globalQueueMutex.Lock()
-	if len(globalOperationQueue) == 0 {
-		globalQueueMutex.Unlock()
+	threshold := MinBatchThreshLimit
+	if globalCacheParams.BatchSaveThreshold > 0 {
+		threshold = GetBatchSaveThreshold()
+	}
+
+	emptyQueue := make([]StoreOperation, 0, threshold)
+	ops := swapGlobalQueue(emptyQueue)
+
+	if len(ops) == 0 {
 		return
 	}
 
-	threshold := MinBatchThreshLimit
-	globalCacheParams.mutex.RLock()
-	if globalCacheParams.BatchSaveThreshold > 0 {
-		threshold = globalCacheParams.BatchSaveThreshold
-	}
-	globalCacheParams.mutex.RUnlock()
-
-	if len(globalOperationQueue) <= 100 {
-		ops := globalOperationQueue
-		globalOperationQueue = make([]StoreOperation, 0, threshold)
-		globalQueueMutex.Unlock()
-
+	if len(ops) <= 100 {
 		s.BatchSave(ops)
 		log.Debugln("[SmartStore] Queue datas saved, operations: [%d]", len(ops))
 		return
 	}
-
-	ops := globalOperationQueue
-	globalOperationQueue = make([]StoreOperation, 0, threshold)
-	globalQueueMutex.Unlock()
 
 	maxBatchSize := 100
 	totalOps := len(ops)
@@ -469,139 +413,175 @@ func (s *Store) FlushQueue(isThresholdTriggered bool) {
 }
 
 // 根据路径前缀获取所有匹配的数据
-func (s *Store) GetSubBytesByPath(prefix string, all bool) (map[string][]byte, error) {
+func (s *Store) GetSubBytesByPath(prefix string) (map[string][]byte, error) {
 	result := make(map[string][]byte)
 
 	globalCacheParams.mutex.RLock()
 	configMaxDomains := globalCacheParams.MaxDomains
 	globalCacheParams.mutex.RUnlock()
 
-	maxDomainsLimit := 500
-	if all {
-		maxDomainsLimit = configMaxDomains
-	} else {
-		if configMaxDomains < 500 {
-			maxDomainsLimit = configMaxDomains
+	pathParts := strings.Split(prefix, "/")
+	if len(pathParts) < 3 || pathParts[0] != "smart" {
+		return result, nil
+	}
+
+	keyType := pathParts[1]
+	config := pathParts[2]
+	group := ""
+	if len(pathParts) >= 4 {
+		group = pathParts[3]
+	}
+
+	switch keyType {
+	case KeyTypeNode, KeyTypePrefetch:
+		if len(pathParts) == 5 && pathParts[4] != "" {
+			configMaxDomains = 1
+		}
+	case KeyTypeRanking:
+		if len(pathParts) == 5 && pathParts[3] != "" {
+			configMaxDomains = 1
+		}
+	case KeyTypeStats:
+		if len(pathParts) == 6 && pathParts[5] != "" {
+			configMaxDomains = 1
 		}
 	}
 
-	var cachePrefix string
-	pathParts := strings.Split(prefix, "/")
-	if len(pathParts) >= 3 && pathParts[0] == "smart" {
-		keyType := pathParts[1]
-		config := pathParts[2]
-		group := ""
-		if len(pathParts) >= 4 {
-			group = pathParts[3]
+	cacheLookup := func(cacheKey string) (dbKey string, dataBytes []byte, ok bool) {
+		value, ok := GetCacheValue(cacheKey)
+		if !ok {
+			return "", nil, false
 		}
+		switch v := value.(type) {
+		case []byte:
+			if len(v) == 0 {
+				return "", nil, false
+			}
+			dataBytes = make([]byte, len(v))
+			copy(dataBytes, v)
+		default:
+			b, err := json.Marshal(v)
+			if err != nil || len(b) == 0 {
+				return "", nil, false
+			}
+			dataBytes = b
+		}
+		parts := strings.Split(cacheKey, ":")
+		var cacheGroup string
+		if len(parts) >= 3 {
+			cacheGroup = parts[2]
+		} else {
+			return "", nil, false
+		}
+		if keyType == KeyTypeStats {
+			if len(parts) < 5 {
+				return "", nil, false
+			}
+			node := parts[len(parts)-1]
+			domain := strings.Join(parts[3:len(parts)-1], ":")
+			dbKey = FormatDBKey("smart", keyType, config, cacheGroup, domain, node)
+		} else if len(parts) >= 4 {
+			dbKey = FormatDBKey("smart", keyType, config, cacheGroup, parts[3])
+		} else {
+			return "", nil, false
+		}
+		return dbKey, dataBytes, true
+	}
 
-		cachePrefix = FormatCacheKey(keyType, config, group)
-
+	if configMaxDomains == 1 {
+		cacheKey := strings.Join(pathParts[1:], ":")
+		dbKey, dataBytes, ok := cacheLookup(cacheKey)
+		if ok {
+			result[dbKey] = dataBytes
+			return result, nil
+		}
+	} else {
+		cachePrefix := FormatCacheKey(keyType, config, group)
 		cacheResults := GetCacheValuesByPrefix(cachePrefix)
-
-		if len(cacheResults) > int(float64(maxDomainsLimit)*0.6) && rand.Float64() > 0.15 {
-			recordCount := 0
-
+		if len(cacheResults) > 0 {
 			keys := make([]string, 0, len(cacheResults))
 			for key := range cacheResults {
 				keys = append(keys, key)
 			}
-
-			rand.Shuffle(len(keys), func(i, j int) {
-				keys[i], keys[j] = keys[j], keys[i]
-			})
+			rand.Shuffle(len(keys), func(i, j int) { keys[i], keys[j] = keys[j], keys[i] })
 
 			for _, key := range keys {
-				if recordCount >= maxDomainsLimit {
+				if len(result) >= configMaxDomains {
 					break
 				}
-				recordCount++
-
-				value := cacheResults[key]
-				var data []byte
-				var err error
-
-				switch v := value.(type) {
-				case []byte:
-					data = make([]byte, len(v))
-					copy(data, v)
-				case StatsRecord:
-					data, err = json.Marshal(v)
-				case NodeState:
-					data, err = json.Marshal(v)
-				case map[string]string:
-					data, err = json.Marshal(v)
-				case RankingData:
-					data, err = json.Marshal(v)
-				default:
+				dbKey, dataBytes, ok := cacheLookup(key)
+				if !ok {
 					continue
 				}
-
-				if err == nil && data != nil {
-					parts := strings.Split(key, ":")
-					var dbKey string
-
-					if len(parts) >= 5 && keyType == KeyTypeStats {
-						dbKey = FormatDBKey("smart", keyType, config, group, parts[3], parts[4])
-					} else if len(parts) >= 4 && keyType != KeyTypeStats {
-						dbKey = FormatDBKey("smart", keyType, config, group, parts[3])
-					} else {
-						continue
-					}
-
-					result[dbKey] = data
-				}
+				result[dbKey] = dataBytes
 			}
 
-			if len(result) > 0 {
+			if len(result) >= configMaxDomains {
 				return result, nil
 			}
 		}
 	}
 
-	dbResult, err := s.DBViewPrefixScan(prefix, maxDomainsLimit)
+	dbCount, err := s.DBViewPrefixCount(prefix)
+	if err != nil {
+		return nil, err
+	}
+	if dbCount == 0 {
+		return result, nil
+	}
+
+	warmThreshold := (dbCount*95 + 99) / 100
+	if len(result) >= warmThreshold || dbCount <= len(result) {
+		return result, nil
+	}
+
+	remaining := configMaxDomains - len(result)
+	if remaining <= 0 {
+		return result, nil
+	}
+
+	dbResult, err := s.DBViewPrefixScan(prefix, remaining)
 	if err != nil {
 		return nil, err
 	}
 
 	for fullPath, data := range dbResult {
+		if _, exists := result[fullPath]; exists {
+			continue
+		}
 		UpdateCacheFromDBResult(fullPath, data)
+		result[fullPath] = data
+		if len(result) >= configMaxDomains {
+			break
+		}
 	}
 
-	return dbResult, nil
+	return result, nil
 }
 
 // 删除指定路径前缀的数据
 func (s *Store) DeleteByPath(path string) error {
-	keysToDelete := []string{}
+	return s.DBBatchDeletePrefix(path)
+}
 
-	matchingData, err := s.DBViewPrefixScan(path, 10000)
-	if err != nil {
-		return err
+// 从数据库结果更新缓存
+func UpdateCacheFromDBResult(fullPath string, data []byte) {
+	if data == nil || len(data) == 0 || fullPath == "" {
+		return
 	}
 
-	for pathStr := range matchingData {
-		cacheKey := ExtractCachePrefixFromPath(pathStr)
-		if cacheKey != "" {
-			keysToDelete = append(keysToDelete, cacheKey)
-		}
+	cacheKey := ExtractCachePrefixFromPath(fullPath)
+	if cacheKey == "" {
+		return
 	}
 
-	err = s.DBBatchDeletePrefix(path)
-
-	if err == nil && len(keysToDelete) > 0 {
-		for _, key := range keysToDelete {
-			DeleteCacheValue(key)
-		}
-	}
-
-	return err
+	SetCacheValue(cacheKey, data)
 }
 
 // 从数据库获取单个条目
 func (s *Store) DBViewGetItem(key string) ([]byte, error) {
 	var data []byte
-	err := s.db.View(func(tx *bbolt.Tx) error {
+	err := db.View(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bucketSmartStats)
 		if bucket == nil {
 			return errors.New("bucket not found")
@@ -621,7 +601,7 @@ func (s *Store) DBViewGetItem(key string) ([]byte, error) {
 
 // 将单个条目保存到数据库
 func (s *Store) DBBatchPutItem(key string, value []byte) error {
-	return s.db.Batch(func(tx *bbolt.Tx) error {
+	return db.Batch(func(tx *bbolt.Tx) error {
 		bucket, err := tx.CreateBucketIfNotExists(bucketSmartStats)
 		if err != nil {
 			return err
@@ -632,8 +612,12 @@ func (s *Store) DBBatchPutItem(key string, value []byte) error {
 
 // 计算前缀匹配的记录数量
 func (s *Store) DBViewPrefixCount(prefix string) (int, error) {
+	if v, ok := prefixCountCache.Get(prefix); ok {
+		return v, nil
+	}
+
 	var count int
-	err := s.db.View(func(tx *bbolt.Tx) error {
+	err := db.View(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bucketSmartStats)
 		if bucket == nil {
 			return nil
@@ -647,20 +631,25 @@ func (s *Store) DBViewPrefixCount(prefix string) (int, error) {
 		}
 		return nil
 	})
-	return count, err
+	if err != nil {
+		return 0, err
+	}
+
+	prefixCountCache.Set(prefix, count)
+
+	return count, nil
 }
 
 // 扫描前缀匹配的记录并随机返回结果
 func (s *Store) DBViewPrefixScan(prefix string, maxResults int) (map[string][]byte, error) {
 	result := make(map[string][]byte)
 
-	count, err := s.DBViewPrefixCount(prefix)
-	if err != nil {
-		return nil, err
+	if maxResults == 0 {
+		return result, nil
 	}
 
-	if count <= maxResults {
-		err := s.db.View(func(tx *bbolt.Tx) error {
+	if maxResults < 0 {
+		err := db.View(func(tx *bbolt.Tx) error {
 			bucket := tx.Bucket(bucketSmartStats)
 			if bucket == nil {
 				return nil
@@ -674,7 +663,10 @@ func (s *Store) DBViewPrefixScan(prefix string, maxResults int) (map[string][]by
 			}
 			return nil
 		})
-		return result, err
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
 	}
 
 	type kv struct {
@@ -684,7 +676,7 @@ func (s *Store) DBViewPrefixScan(prefix string, maxResults int) (map[string][]by
 	reservoir := make([]kv, 0, maxResults)
 	total := 0
 
-	err = s.db.View(func(tx *bbolt.Tx) error {
+	err := db.View(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bucketSmartStats)
 		if bucket == nil {
 			return nil
@@ -696,6 +688,7 @@ func (s *Store) DBViewPrefixScan(prefix string, maxResults int) (map[string][]by
 			dataCopy := make([]byte, len(v))
 			copy(dataCopy, v)
 			item := kv{key: string(k), val: dataCopy}
+
 			if len(reservoir) < maxResults {
 				reservoir = append(reservoir, item)
 			} else {
@@ -708,17 +701,22 @@ func (s *Store) DBViewPrefixScan(prefix string, maxResults int) (map[string][]by
 		return nil
 	})
 
+	if err != nil {
+		return nil, err
+	}
+
 	for _, item := range reservoir {
 		result[item.key] = item.val
 	}
-	return result, err
+
+	return result, nil
 }
 
 // 删除前缀匹配的所有记录
 func (s *Store) DBBatchDeletePrefix(prefix string) error {
 	var keysToDelete [][]byte
 
-	err := s.db.View(func(tx *bbolt.Tx) error {
+	err := db.View(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bucketSmartStats)
 		if bucket == nil {
 			return nil
@@ -747,7 +745,7 @@ func (s *Store) DBBatchDeletePrefix(prefix string) error {
 		}
 
 		batch := keysToDelete[i:end]
-		err := s.db.Batch(func(tx *bbolt.Tx) error {
+		err := db.Batch(func(tx *bbolt.Tx) error {
 			bucket := tx.Bucket(bucketSmartStats)
 			if bucket == nil {
 				return nil
@@ -765,6 +763,8 @@ func (s *Store) DBBatchDeletePrefix(prefix string) error {
 			return err
 		}
 	}
+
+	prefixCountCache.Delete(prefix)
 
 	return nil
 }

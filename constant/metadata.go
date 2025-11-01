@@ -187,6 +187,7 @@ type Metadata struct {
 	RemoteDst    string     `json:"remoteDestination"`
 	DSCP         uint8      `json:"dscp"`
 	UUID         string     `json:"id,omitempty"` // ID is used to identify the connection for smart
+	SmartBlock   string     `json:"smartBlock"`   // SmartBlock indicates if the node selected by smart group should be blocked for this connection
 
 	RawSrcAddr net.Addr `json:"-"`
 	RawDstAddr net.Addr `json:"-"`

@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	C "github.com/metacubex/mihomo/constant"
+	"github.com/metacubex/sing/common/network"
 )
 
 type closeCallbackConn struct {
@@ -14,6 +15,16 @@ type closeCallbackConn struct {
 
 func (w *closeCallbackConn) Close() error {
 	w.closeOnce.Do(w.closeFunc)
+	return w.Conn.Close()
+}
+
+func (w *closeCallbackConn) CloseWrite() error {
+	go w.closeOnce.Do(func() {
+		w.closeFunc()
+	})
+	if wc, ok := w.Conn.(network.WriteCloser); ok {
+		return wc.CloseWrite()
+	}
 	return w.Conn.Close()
 }
 
@@ -41,6 +52,16 @@ type closeCallbackPacketConn struct {
 
 func (w *closeCallbackPacketConn) Close() error {
 	w.closeOnce.Do(w.closeFunc)
+	return w.PacketConn.Close()
+}
+
+func (w *closeCallbackPacketConn) CloseWrite() error {
+	go w.closeOnce.Do(func() {
+		w.closeFunc()
+	})
+	if wc, ok := w.PacketConn.(network.WriteCloser); ok {
+		return wc.CloseWrite()
+	}
 	return w.PacketConn.Close()
 }
 

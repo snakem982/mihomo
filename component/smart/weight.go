@@ -13,10 +13,10 @@ import (
 
 var (
 	presetSceneParams = map[string]SceneParams{
-		"interactive": {0.4, 0.2, 0.4, 1.2, 1.0, 1.3, 0.3},
-		"streaming":   {0.5, 0.1, 0.4, 1.5, 0.8, 1.2, 0.2},
-		"transfer":    {0.6, 0.2, 0.2, 1.8, 0.7, 0.9, 0.1},
-		"web":         {0.5, 0.3, 0.2, 0.8, 0.6, 1.0, 0.2},
+		"interactive": {0.6, 0.1, 0.3, 1.2, 1.0, 1.3, 0.3},
+		"streaming":   {0.5, 0.2, 0.3, 1.5, 0.8, 1.2, 0.2},
+		"transfer":    {0.5, 0.2, 0.3, 1.8, 0.7, 0.9, 0.1},
+		"web":         {0.5, 0.1, 0.4, 0.8, 0.6, 1.0, 0.2},
 	}
 )
 
@@ -33,7 +33,7 @@ type (
 )
 
 // 计算权重
-func CalculateWeight(success, failure, connectTime, latency int64, isUDP bool, uploadTotal, downloadTotal, maxUploadRate, maxDownloadRate, connectionDuration float64, lastConnectTimestamp int64) float64 {
+func CalculateWeight(connSuccess bool, success, failure, connectTime, latency int64, isUDP bool, uploadTotal, downloadTotal, maxUploadRate, maxDownloadRate, connectionDuration float64, lastConnectTimestamp int64) float64 {
 	// 1. 检查样本数量
 	total := success + failure
 	if total < DefaultMinSampleCount {
@@ -48,7 +48,7 @@ func CalculateWeight(success, failure, connectTime, latency int64, isUDP bool, u
 	durationMinutes := connectionDuration
 
 	// 3. 场景识别和参数获取
-	sceneType := identifyConnectionScene(isUDP, latency, uploadMB, downloadMB, maxUploadRateKB, maxDownloadRateKB, durationMinutes, connectTime)
+	sceneType := identifyConnectionScene(isUDP, latency, uploadMB, downloadMB, maxUploadRateKB, maxDownloadRateKB, durationMinutes)
 
 	var params SceneParams
 	if p, ok := presetSceneParams[sceneType]; ok {
@@ -67,8 +67,6 @@ func CalculateWeight(success, failure, connectTime, latency int64, isUDP bool, u
 	// 5. 对所有历史数据应用时间衰减
 	decayedSuccess := float64(success) * timeFactor
 	decayedFailure := float64(failure) * timeFactor
-	decayedConnectTime := float64(connectTime) * timeFactor
-	decayedLatency := float64(latency) * timeFactor
 	decayedTotal := decayedSuccess + decayedFailure
 
 	if decayedTotal < 1.0 {
@@ -77,17 +75,24 @@ func CalculateWeight(success, failure, connectTime, latency int64, isUDP bool, u
 		decayedTotal = decayedSuccess + decayedFailure
 	}
 
-	if decayedConnectTime < 1.0 {
-		decayedConnectTime = 1.0
-	}
-	if decayedLatency < 1.0 {
-		decayedLatency = 1.0
+	// 6. 基础指标计算
+	if connectTime == 0 && !connSuccess {
+		connectTime = 2000
 	}
 
-	// 6. 基础指标计算
+	if latency == 0 && !connSuccess {
+		latency = 2000
+	}
+
 	successRate := decayedSuccess / decayedTotal
-	connectScore := 1.0 / decayedConnectTime
-	latencyScore := 1.0 / decayedLatency
+	connectScore := math.Exp(-float64(connectTime)/1500.0) * timeFactor
+	latencyScore := math.Exp(-float64(latency)/1500.0) * timeFactor
+
+	connectScore = math.Min(0.8, connectScore)
+	latencyScore = math.Min(0.8, latencyScore)
+
+	connectScore = math.Max(0.3, connectScore)
+	latencyScore = math.Max(0.3, latencyScore)
 
 	// 7. UDP协议调整
 	if isUDP {
@@ -139,7 +144,10 @@ func CalculateWeight(success, failure, connectTime, latency int64, isUDP bool, u
 	// 12. 质量加成计算
 	var qualityBonus float64 = 0
 
-	if latency < 30 {
+	if latency > 0 && latency < 100 {
+		qualityBonus += 0.1
+	}
+	if connectTime > 0 && connectTime < 10 {
 		qualityBonus += 0.1
 	}
 	if successRate > 0.95 {
@@ -148,7 +156,7 @@ func CalculateWeight(success, failure, connectTime, latency int64, isUDP bool, u
 	if (sceneType == "streaming" || sceneType == "transfer") && downloadMB > 20 {
 		qualityBonus += 0.1
 	}
-	if sceneType == "interactive" && latency < 50 && successRate > 0.9 {
+	if sceneType == "interactive" && latency > 0 && latency < 100 && successRate > 0.9 {
 		qualityBonus += 0.1
 	}
 
@@ -161,35 +169,41 @@ func CalculateWeight(success, failure, connectTime, latency int64, isUDP bool, u
 }
 
 // 识别连接的使用场景类型
-func identifyConnectionScene(isUDP bool, latency int64, uploadMB, downloadMB, maxUploadRateKB, maxDownloadRateKB, durationMinutes float64, connectTime int64) string {
+func identifyConnectionScene(isUDP bool, latency int64, uploadMB, downloadMB, maxUploadRateKB, maxDownloadRateKB, durationMinutes float64) string {
 	const (
-		SceneInteractive = "interactive" // gaming和voicevideo
-		SceneStreaming   = "streaming"   // 流媒体
-		SceneTransfer    = "transfer"    // filetransfer和大流量场景
-		SceneWeb         = "web"         // browsing和api
+		SceneInteractive = "interactive" // 游戏/互动场景
+		SceneStreaming   = "streaming"   // 流媒体场景
+		SceneTransfer    = "transfer"    // 大流量传输场景
+		SceneWeb         = "web"         // Web场景
 	)
 
 	// 游戏/互动场景特征：低延迟，持续连接，流量相对平衡
 	if (isUDP && latency < 150 && durationMinutes > 3 &&
 		uploadMB > 0.2 && downloadMB > 0.2 &&
-		maxUploadRateKB > 200 && maxDownloadRateKB > 200) ||
+		maxUploadRateKB > 200 && maxDownloadRateKB > 200 &&
+		(uploadMB+downloadMB)/durationMinutes > 0.1 && (uploadMB+downloadMB)/durationMinutes < 10) ||
 		(!isUDP && latency < 250 && durationMinutes > 3 &&
 			uploadMB > 0.1 && downloadMB > 0.1 &&
 			uploadMB < 150 && downloadMB < 150 &&
 			(uploadMB/downloadMB > 0.2) && (uploadMB/downloadMB < 5) &&
-			maxUploadRateKB > 150 && maxDownloadRateKB > 150) {
+			maxUploadRateKB > 150 && maxDownloadRateKB > 150 &&
+			(uploadMB+downloadMB)/durationMinutes > 0.05 && (uploadMB+downloadMB)/durationMinutes < 15) {
 		return SceneInteractive
 	}
 
-	// 大流量传输场景 - 适应多CDN环境，单连接流量阈值降低
+	// 大流量传输场景
 	if (uploadMB > 100 || downloadMB > 100 || maxUploadRateKB > 5000) && durationMinutes > 0.5 {
-		return SceneTransfer
+		totalThroughput := (uploadMB + downloadMB) / durationMinutes
+		if totalThroughput > 5 {
+			return SceneTransfer
+		}
 	}
 
 	// 流媒体场景
 	if durationMinutes > 1 {
-		if (downloadMB > 60 && downloadMB/uploadMB > 3 && maxDownloadRateKB > 2000 && maxDownloadRateKB/maxUploadRateKB > 4) ||
-			(downloadMB > 15 && downloadMB/uploadMB > 3 && maxDownloadRateKB > 1000 && maxDownloadRateKB/maxUploadRateKB > 3) {
+		downloadThroughput := downloadMB / durationMinutes
+		if (downloadMB > 60 && downloadMB/uploadMB > 3 && maxDownloadRateKB > 2000 && maxDownloadRateKB/maxUploadRateKB > 4 && downloadThroughput > 5) ||
+			(downloadMB > 15 && downloadMB/uploadMB > 3 && maxDownloadRateKB > 1000 && maxDownloadRateKB/maxUploadRateKB > 3 && downloadThroughput > 2) {
 			return SceneStreaming
 		}
 	}
@@ -204,22 +218,32 @@ func calculateTrafficFactor(trafficMB, maxRateKB, durationMinutes float64, isSho
 		return 0.0
 	}
 
-	throughput := trafficMB / math.Max(1.0, durationMinutes)
-
 	var baseFactor float64
 	switch {
+	case trafficMB < 0.005: // <5KB
+		baseFactor = 0.10 + 0.05*math.Log10(trafficMB/0.001)
+	case trafficMB < 0.01:
+		baseFactor = 0.18 + 0.08*math.Log10(trafficMB/0.005)
+	case trafficMB < 0.05:
+		baseFactor = 0.35 + 0.10*math.Log10(trafficMB/0.01)
+	case trafficMB < 0.1:
+		baseFactor = 0.53 + 0.15*math.Log10(trafficMB/0.05)
+	case trafficMB < 0.5:
+		baseFactor = 0.72 + 0.18*math.Log10(trafficMB/0.1)
 	case trafficMB < 1:
-		baseFactor = trafficMB * 0.7
-	case trafficMB < 10:
-		baseFactor = 0.7 + 0.3*math.Log10(trafficMB)
-	case trafficMB < 50:
-		baseFactor = 1.0 + 0.3*math.Log10(trafficMB/10)
+		baseFactor = 0.98 + 0.15*math.Log10(trafficMB/0.5)
+	case trafficMB < 5:
+		baseFactor = 1.18 + 0.10*math.Log10(trafficMB/1)
+	case trafficMB < 20:
+		baseFactor = 1.32 + 0.08*math.Log10(trafficMB/5)
+	case trafficMB < 100:
+		baseFactor = 1.45 + 0.06*math.Log10(trafficMB/20)
 	case trafficMB < 500:
-		baseFactor = 1.3 + 0.3*math.Log10(trafficMB/50)
+		baseFactor = 1.56 + 0.05*math.Log10(trafficMB/100)
 	case trafficMB < 3000:
-		baseFactor = 1.6 + 0.3*math.Log10(trafficMB/500)
+		baseFactor = 1.66 + 0.04*math.Log10(trafficMB/500)
 	default:
-		baseFactor = 1.9 + 0.25*math.Log10(trafficMB/3000)
+		baseFactor = 1.74 + 0.02*math.Log10(trafficMB/3000)
 	}
 
 	// 吞吐量加成
@@ -234,26 +258,31 @@ func calculateTrafficFactor(trafficMB, maxRateKB, durationMinutes float64, isSho
 	case maxRateKB < 2000:
 		rateBonus = 1.15 + 0.05*((maxRateKB-500)/1500.0)
 	case maxRateKB < 5000:
-		rateBonus = 1.20 + 0.05*((maxRateKB-2000)/3000.0)
+		rateBonus = 1.20 + 0.04*((maxRateKB-2000)/3000.0)
 	case maxRateKB < 20000:
-		rateBonus = 1.25 + 0.05*((maxRateKB-5000)/15000.0)
+		rateBonus = 1.24 + 0.04*((maxRateKB-5000)/15000.0)
+	case maxRateKB < 100000:
+		rateBonus = 1.28 + 0.03*math.Log10(maxRateKB/20000.0)
+		rateBonus = math.Min(rateBonus, 1.32)
 	default:
-		rateBonus = 1.30
+		rateBonus = 1.32 + 0.02*math.Log10(maxRateKB/100000.0)
+		rateBonus = math.Min(rateBonus, 1.36)
 	}
 	baseFactor *= rateBonus
 
 	// 平均流量加成
 	var connectionFactor float64
+	throughput := trafficMB / math.Max(1.0, durationMinutes)
 	if isShort {
-		connectionFactor = 0.8 + 0.2*math.Min(1, throughput/30.0)
+		connectionFactor = 0.85 + 0.15*math.Min(1, throughput/25.0)
 	} else {
 		connectionFactor = 1.0
 		if throughput > 5 {
-			baseFactor *= 1.0 + 0.2*math.Min(1, (throughput-5)/95.0)
+			baseFactor *= 1.0 + 0.15*math.Min(1, (throughput-5)/80.0)
 		}
 	}
 
 	factor := baseFactor * connectionFactor
 
-	return math.Min(1.3, factor)
+	return math.Min(1.25, factor)
 }

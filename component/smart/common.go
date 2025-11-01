@@ -10,19 +10,25 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/metacubex/bbolt"
+	"github.com/metacubex/mihomo/common/atomic"
 	"github.com/metacubex/mihomo/common/cmd"
 	"github.com/metacubex/mihomo/common/lru"
+	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/log"
+
+	"golang.org/x/net/publicsuffix"
 )
 
 const (
-	OpSaveNodeState StoreOperationType = iota
+	OpSaveNodeState = iota
 	OpSaveStats
 	OpSavePrefetch
 	OpSaveRanking
@@ -30,11 +36,11 @@ const (
 
 const (
 	KeyTypePrefetch = "prefetch"
-	KeyTypeUnwrap   = "unwrap"
 	KeyTypeFailed   = "failed"
 	KeyTypeNode     = "node"
 	KeyTypeStats    = "stats"
 	KeyTypeRanking  = "ranking"
+	keyTypeNetwork  = "network"
 
 	WeightTypeTCP    = "tcp"
 	WeightTypeUDP    = "udp"
@@ -43,12 +49,11 @@ const (
 )
 
 const (
-	DefaultMinSampleCount   = 2
-	RetentionPeriod         = 14 * 24 * time.Hour
-	CacheMaxAge             = 21600
-	NetworkFailureThreshold = 5
+	DefaultMinSampleCount = 2
+	RetentionPeriod       = 7 * 24 * time.Hour
+	CacheMaxAge           = 21600
 
-	MaxDomainsLimit         = 2000
+	MaxDomainsLimit         = 4000
 	MinDomainsLimit         = 300
 	MaxBatchThreshLimit     = 500
 	MinBatchThreshLimit     = 100
@@ -65,16 +70,14 @@ const (
 	RankRarelyUsed = "RarelyUsed"
 )
 
-type StoreOperationType int
-
-var bucketSmartStats = []byte("smart_stats")
-
 var (
+	db               *bbolt.DB
+	bucketSmartStats = []byte("smart_stats")
+
 	globalInitInstances = make(map[string]bool)
 	globalInitLock      sync.Mutex
 
-	globalOperationQueue []StoreOperation
-	globalQueueMutex     sync.RWMutex
+	globalOperationQueue atomic.TypedValue[[]StoreOperation]
 
 	globalCacheParams struct {
 		BatchSaveThreshold int
@@ -91,23 +94,56 @@ var (
 
 	cachedMemoryLimit float64
 	memoryLimitOnce   sync.Once
+
+	domainCache *lru.LruCache[string, string]
+
+	prefixCountCache *lru.LruCache[string, int]
+
+	nodeStatesCache *lru.LruCache[string, map[string][]byte]
+
+	unwrapCache *lru.LruCache[string, []C.Proxy]
+
+	recordCache *lru.LruCache[string, *AtomicStatsRecord]
 )
 
+var cdnASNs = map[string]bool{
+	"13335":  true, // Cloudflare
+	"12222":  true, // Akamai
+	"16625":  true, // Akamai
+	"20940":  true, // Akamai
+	"31110":  true, // Akamai
+	"35994":  true, // Akamai
+	"54113":  true, // Fastly
+	"22822":  true, // Limelight Networks
+	"15133":  true, // EdgeCast (Verizon)
+	"19551":  true, // Incapsula (Imperva)
+	"20446":  true, // StackPath / Bunny
+	"60068":  true, // CDN77
+	"16509":  true, // Amazon CloudFront
+	"36408":  true, // CDNetworks
+	"4809":   true, // ChinaCache
+	"199524": true, // Gcore
+	"212238": true, // BelugaCDN
+	"55933":  true, // QUANTIL
+	"43260":  true, // Medianova
+	"43317":  true, // CDNvideo
+	"43996":  true, // CDNsun
+	"52320":  true, // GlobeNet
+	"396982": true, // Leaseweb CDN
+	"16276":  true, // OVH CDN
+	"30081":  true, // CacheFly
+}
+
 type (
+	Store struct{}
+
 	StoreOperation struct {
-		Type   StoreOperationType
+		Type   int
 		Group  string
 		Config string
-		Domain string
+		Target string
 		Node   string
 		Data   []byte
-	}
-
-	DomainRecord struct {
-		Key      string    `json:"key"`
-		NodeName string    `json:"node_name"`
-		Domain   string    `json:"domain"`
-		LastUsed time.Time `json:"last_used"`
 	}
 
 	StatsRecord struct {
@@ -125,22 +161,32 @@ type (
 	}
 
 	NodeState struct {
-		Name           string    `json:"name"`
-		FailureCount   int       `json:"failure_count"`
-		LastFailure    time.Time `json:"last_failure"`
-		BlockedUntil   time.Time `json:"blocked_until"`
-		Degraded       bool      `json:"degraded"`
-		DegradedFactor float64   `json:"degraded_factor"`
+		Name               string         `json:"name"`
+		FailureCount       int            `json:"failure_count"`
+		LastFailure        time.Time      `json:"last_failure"`
+		BlockedUntil       time.Time      `json:"blocked_until"`
+		Degraded           bool           `json:"degraded"`
+		DegradedFactor     float64        `json:"degraded_factor"`
+		DomainFailureCount map[string]int `json:"domain_failure_count"`
 	}
 
-	RankingData struct {
-		Ranking     map[string]string `json:"ranking"`
-		LastUpdated time.Time         `json:"last_updated"`
+	NodeWithWeight struct {
+		Nodes   []string  `json:"nodes"`
+		Weights []float64 `json:"weights"`
+	}
+
+	PrefetchMap struct {
+		TCP NodeWithWeight `json:"tcp,omitempty"`
+		UDP NodeWithWeight `json:"udp,omitempty"`
+		Ref string         `json:"ref,omitempty"`
 	}
 )
 
-func InitializeGlobalParams() {
-	InitializeCache()
+func NewStore(newdb *bbolt.DB) *Store {
+	db = newdb
+	InitCache()
+	InitQueue()
+	return &Store{}
 }
 
 // 格式化缓存键
@@ -164,26 +210,118 @@ func FormatDBKey(first string, parts ...string) string {
 	return strings.Join(elements, "/")
 }
 
-// 获取有效顶级域名加一级域名
-func GetEffectiveDomain(host string, dstIP string) string {
-	if host != "" {
-		return host
+// 获取有效顶级域名加一二级域名并使用通配符处理
+func GetEffectiveDomain(host string, dstIP string) (string, string) {
+	rawHost := host
+
+	if host == "" {
+		return dstIP, dstIP
 	}
-	if dstIP != "" {
-		return dstIP
+
+	h := strings.ToLower(host)
+
+	validLabel := regexp.MustCompile(`^[a-z0-9-]+$`)
+	hexRandom := regexp.MustCompile(`^[0-9a-f]{8,}$`)
+
+	compute := func() string {
+		parts := strings.Split(h, ".")
+		reg, err := publicsuffix.EffectiveTLDPlusOne(h)
+		if err != nil || reg == "" || reg == h || !(h == reg || strings.HasSuffix(h, "."+reg)) {
+			if len(parts) >= 2 {
+				reg = strings.Join(parts[len(parts)-2:], ".")
+			} else {
+				return h
+			}
+		}
+
+		var sub string
+		if h == reg {
+			sub = ""
+		} else {
+			sub = strings.TrimSuffix(h, "."+reg)
+		}
+
+		if sub == "" {
+			return reg
+		}
+
+		labels := strings.Split(sub, ".")
+		last := labels[len(labels)-1]
+
+		if strings.Contains(last, "-") {
+			last = "*"
+		} else if hexRandom.MatchString(last) {
+			last = "*"
+		} else {
+			letters := 0
+			digits := 0
+			for _, r := range last {
+				if r >= 'a' && r <= 'z' {
+					letters++
+				} else if r >= '0' && r <= '9' {
+					digits++
+				}
+			}
+			if letters > 0 && digits > 0 {
+				if len(last) > 10 || (digits > 0 && float64(digits)/float64(len(last)) > 0.6) {
+					last = "*"
+				}
+			}
+		}
+
+		if !validLabel.MatchString(last) || strings.HasPrefix(last, "-") || strings.HasSuffix(last, "-") {
+			last = "*"
+		}
+
+		var normalizedSub string
+		if len(labels) == 1 {
+			normalizedSub = last
+		} else {
+			normalizedSub = "*." + last
+		}
+
+		if normalizedSub == "" || normalizedSub == "*" || normalizedSub == "*.*" {
+			return "*." + reg
+		}
+
+		return normalizedSub + "." + reg
 	}
-	return ""
+
+	if domainCache != nil {
+		if result, _ := domainCache.GetOrStore(h, func() string {
+			return compute()
+		}); result != "" {
+			if strings.HasPrefix(result, "*.") {
+				domainCache.Set(result, result)
+				domainCache.Set(h, result)
+				return result, rawHost
+			}
+
+			if result == h {
+				parts := strings.Split(h, ".")
+				if len(parts) == 2 {
+					wildcard := "*." + h
+					domainCache.Set(h, wildcard)
+					domainCache.Set(wildcard, wildcard)
+					return wildcard, rawHost
+				}
+				if len(parts) > 2 {
+					wildcard := "*." + parts[len(parts)-2] + "." + parts[len(parts)-1]
+					if cachedVal, ok := domainCache.Get(wildcard); ok && cachedVal != "" {
+						domainCache.Set(h, cachedVal)
+						return cachedVal, rawHost
+					}
+				}
+			}
+		}
+	}
+
+	return compute(), rawHost
 }
 
 // 限制值在指定范围内
 func ClampValue(value, min, max int) int {
-	if value < min {
-		return min
-	}
-	if value > max {
-		return max
-	}
-	return value
+	return int(math.Min(math.Max(float64(value), float64(min)), float64(max)))
 }
 
 // 时间衰减
@@ -325,53 +463,105 @@ func getSystemMemoryLimit() float64 {
 	return cachedMemoryLimit
 }
 
+func InitQueue() {
+	threshold := GetBatchSaveThreshold()
+	emptyQueue := make([]StoreOperation, 0, threshold)
+	replaceGlobalQueue(emptyQueue)
+}
+
+func appendToGlobalQueue(operations ...StoreOperation) {
+	globalOperationQueue.Update(func(old []StoreOperation) []StoreOperation {
+		newQueue := make([]StoreOperation, len(old)+len(operations))
+		copy(newQueue, old)
+		copy(newQueue[len(old):], operations)
+		return newQueue
+	})
+}
+
+func replaceGlobalQueue(newQueue []StoreOperation) {
+	globalOperationQueue.Store(newQueue)
+}
+
+func getGlobalQueueSnapshot() []StoreOperation {
+	return globalOperationQueue.Load()
+}
+
+func swapGlobalQueue(newQueue []StoreOperation) []StoreOperation {
+	return globalOperationQueue.Swap(newQueue)
+}
+
+func updateGlobalQueue(updateFunc func([]StoreOperation) []StoreOperation) {
+	globalOperationQueue.Update(updateFunc)
+}
+
+func removeFromGlobalQueue(shouldRemove func(StoreOperation) bool) {
+	updateGlobalQueue(func(currentQueue []StoreOperation) []StoreOperation {
+		newQueue := make([]StoreOperation, 0, len(currentQueue))
+		for _, op := range currentQueue {
+			if !shouldRemove(op) {
+				newQueue = append(newQueue, op)
+			}
+		}
+		return newQueue
+	})
+}
+
+func filterQueueByConfig(config string) {
+	updateGlobalQueue(func(currentQueue []StoreOperation) []StoreOperation {
+		newQueue := make([]StoreOperation, 0, len(currentQueue))
+		for _, op := range currentQueue {
+			if op.Config != config {
+				newQueue = append(newQueue, op)
+			}
+		}
+		return newQueue
+	})
+}
+
+func filterQueueByGroup(group, config string) {
+	updateGlobalQueue(func(currentQueue []StoreOperation) []StoreOperation {
+		newQueue := make([]StoreOperation, 0, len(currentQueue))
+		for _, op := range currentQueue {
+			if !(op.Group == group && op.Config == config) {
+				newQueue = append(newQueue, op)
+			}
+		}
+		return newQueue
+	})
+}
+
+func removeNodesFromQueue(group, config string, nodes []string) {
+	removeFromGlobalQueue(func(op StoreOperation) bool {
+		if op.Group == group && op.Config == config {
+			for _, node := range nodes {
+				if op.Node == node {
+					return true
+				}
+			}
+		}
+		return false
+	})
+}
+
 // 按级别刷新缓存
 func (s *Store) FlushByLevel(level string, config string, group string) error {
 	if level == "" {
 		return errors.New("flush level cannot be empty")
 	}
 
-	globalQueueMutex.Lock()
 	if level == "all" {
-		globalOperationQueue = make([]StoreOperation, 0, MinBatchThreshLimit)
-	} else if level == "config" || level == "group" {
-		newQueue := make([]StoreOperation, 0, MinBatchThreshLimit)
-		for _, op := range globalOperationQueue {
-			if level == "config" && op.Config != config {
-				newQueue = append(newQueue, op)
-			} else if level == "group" && !(op.Group == group && op.Config == config) {
-				newQueue = append(newQueue, op)
-			}
-		}
-		globalOperationQueue = newQueue
+		emptyQueue := make([]StoreOperation, 0, MinBatchThreshLimit)
+		replaceGlobalQueue(emptyQueue)
+	} else if level == "config" {
+		filterQueueByConfig(config)
+	} else if level == "group" {
+		filterQueueByGroup(group, config)
 	}
-	globalQueueMutex.Unlock()
 
 	ClearCacheByLevel(level, config, group)
 
-	s.failureStatusLock.Lock()
 	if level == "all" {
-		s.networkFailureStatus = make(map[string]bool)
-		s.successCount = make(map[string]int)
-		s.lastNetworkFailure = make(map[string]time.Time)
-	} else if level == "group" {
-		groupKey := fmt.Sprintf("%s:%s", group, config)
-		delete(s.networkFailureStatus, groupKey)
-		delete(s.successCount, groupKey)
-		delete(s.lastNetworkFailure, groupKey)
-	} else if level == "config" {
-		for key := range s.networkFailureStatus {
-			if strings.Contains(key, ":"+config) {
-				delete(s.networkFailureStatus, key)
-				delete(s.successCount, key)
-				delete(s.lastNetworkFailure, key)
-			}
-		}
-	}
-	s.failureStatusLock.Unlock()
-
-	if level == "all" {
-		return s.DeleteByPath("smart")
+		s.DeleteByPath("smart")
 	} else if level == "config" {
 		s.DeleteByPath(FormatDBKey("smart", KeyTypeStats, config))
 		s.DeleteByPath(FormatDBKey("smart", KeyTypeNode, config))
@@ -389,7 +579,7 @@ func (s *Store) FlushByLevel(level string, config string, group string) error {
 
 // 清空所有缓存
 func (s *Store) FlushAll() error {
-	log.Debugln("[SmartStore] Starting FlushAll, current queue length: %d", len(globalOperationQueue))
+	log.Debugln("[SmartStore] Starting FlushAll, current queue length: %d", len(getGlobalQueueSnapshot()))
 	err := s.FlushByLevel("all", "", "")
 	if err == nil {
 		log.Debugln("[SmartStore] All Smart data cleared")

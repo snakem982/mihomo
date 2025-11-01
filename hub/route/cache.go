@@ -21,6 +21,7 @@ func cacheRouter() http.Handler {
 	r.Post("/fakeip/flush", flushFakeIPPool)
 	r.Post("/smart/flush", flushAllSmartCache)
 	r.Post("/smart/flush/{config}", flushSmartConfigCache)
+	r.Post("/dns/flush", flushDnsCache)
 	return r
 }
 
@@ -35,21 +36,14 @@ func flushFakeIPPool(w http.ResponseWriter, r *http.Request) {
 }
 
 func flushAllSmartCache(w http.ResponseWriter, r *http.Request) {
-	db := cachefile.Cache()
-	if db == nil {
-		render.Status(r, http.StatusInternalServerError)
-		render.JSON(w, r, newError("cache store not available"))
-		return
-	}
-
-	smartStore := cachefile.NewSmartStore(db)
+	smartStore := cachefile.GetSmartStore()
 	if smartStore == nil {
 		render.Status(r, http.StatusInternalServerError)
-		render.JSON(w, r, newError("smart store not available"))
+		render.JSON(w, r, newError("smart cache not available"))
 		return
 	}
 
-	if err := smartStore.GetStore().FlushAll(); err != nil {
+	if err := smartStore.FlushAll(); err != nil {
 		render.Status(r, http.StatusInternalServerError)
 		render.JSON(w, r, newError(err.Error()))
 		return
@@ -66,25 +60,23 @@ func flushSmartConfigCache(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	db := cachefile.Cache()
-	if db == nil {
-		render.Status(r, http.StatusInternalServerError)
-		render.JSON(w, r, newError("cache store not available"))
-		return
-	}
-
-	smartStore := cachefile.NewSmartStore(db)
+	smartStore := cachefile.GetSmartStore()
 	if smartStore == nil {
 		render.Status(r, http.StatusInternalServerError)
-		render.JSON(w, r, newError("smart store not available"))
+		render.JSON(w, r, newError("smart cache not available"))
 		return
 	}
 
-	if err := smartStore.GetStore().FlushByConfig(configName); err != nil {
+	if err := smartStore.FlushByConfig(configName); err != nil {
 		render.Status(r, http.StatusInternalServerError)
 		render.JSON(w, r, newError(err.Error()))
 		return
 	}
 
+	render.NoContent(w, r)
+}
+
+func flushDnsCache(w http.ResponseWriter, r *http.Request) {
+	resolver.ClearCache()
 	render.NoContent(w, r)
 }

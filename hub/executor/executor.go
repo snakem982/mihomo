@@ -25,6 +25,7 @@ import (
 	"github.com/metacubex/mihomo/component/profile/cachefile"
 	"github.com/metacubex/mihomo/component/resolver"
 	"github.com/metacubex/mihomo/component/resource"
+	"github.com/metacubex/mihomo/component/smart/lightgbm"
 	"github.com/metacubex/mihomo/component/sniffer"
 	tlsC "github.com/metacubex/mihomo/component/tls"
 	"github.com/metacubex/mihomo/component/trie"
@@ -83,6 +84,8 @@ func ParseWithBytes(buf []byte) (*config.Config, error) {
 
 // ApplyConfig dispatch configure to all parts without ExternalController
 func ApplyConfig(cfg *config.Config, force bool) {
+	mux.Lock()
+	defer mux.Unlock()
 	log.SetLevel(cfg.General.LogLevel)
 
 	tunnel.OnSuspend()
@@ -94,6 +97,8 @@ func ApplyConfig(cfg *config.Config, force bool) {
 		}
 	}
 
+	closeSmart()
+	updateSmartCollector(cfg.Profile)
 	updateExperimental(cfg.Experimental)
 	updateUsers(cfg.Users)
 	updateProxies(cfg.Proxies, cfg.Providers)
@@ -114,10 +119,9 @@ func ApplyConfig(cfg *config.Config, force bool) {
 	loadProvider(cfg.Providers)
 	updateProfile(cfg)
 	loadProvider(cfg.RuleProviders)
+	runtime.GC()
 	tunnel.OnRunning()
 	updateUpdater(cfg)
-
-	initializeSmartGroups(cfg.Proxies)
 
 	resolver.ResetConnection()
 }
@@ -129,8 +133,8 @@ func initInnerTcp() {
 func GetGeneral() *config.General {
 	ports := listener.GetPorts()
 	var authenticator []string
-	if auth1 := authStore.Default.Authenticator(); auth1 != nil {
-		authenticator = auth1.Users()
+	if auth := authStore.Default.Authenticator(); auth != nil {
+		authenticator = auth.Users()
 	}
 
 	general := &config.General{
@@ -179,6 +183,9 @@ func GetGeneral() *config.General {
 		KeepAliveInterval:       int(keepalive.KeepAliveInterval() / time.Second),
 		KeepAliveIdle:           int(keepalive.KeepAliveIdle() / time.Second),
 		DisableKeepAlive:        keepalive.DisableKeepAlive(),
+		LgbmAutoUpdate:          updater.LgbmAutoUpdate(),
+		LgbmUpdateInterval:      updater.LgbmUpdateInterval(),
+		LgbmUrl:                 updater.LgbmUrl(),
 	}
 
 	return general
@@ -371,6 +378,10 @@ func updateUpdater(cfg *config.Config) {
 	updater.SetGeoAutoUpdate(general.GeoAutoUpdate)
 	updater.SetGeoUpdateInterval(general.GeoUpdateInterval)
 
+	updater.SetLgbmAutoUpdate(general.LgbmAutoUpdate)
+	updater.SetLgbmUpdateInterval(general.LgbmUpdateInterval)
+	updater.SetLgbmUrl(general.LgbmUrl)
+
 	controller := cfg.Controller
 	updater.DefaultUiUpdater = updater.NewUiUpdater(controller.ExternalUI, controller.ExternalUIURL, controller.ExternalUIName)
 	updater.DefaultUiUpdater.AutoDownloadUI()
@@ -531,23 +542,15 @@ func updateIPTables(cfg *config.Config) {
 	log.Infoln("[IPTABLES] Setting iptables completed")
 }
 
-func initializeSmartGroups(proxies map[string]C.Proxy) {
-	closeSmartGroups()
-	for _, proxy := range proxies {
-		if proxy.Type() == C.Smart {
-			if smart, ok := proxy.Adapter().(*outboundgroup.Smart); ok {
-				log.Infoln("[Smart] Initializing Smart Group: %s", proxy.Name())
-				smart.InitializeCache()
-			}
-		}
-	}
+func updateSmartCollector(c *config.Profile) {
+	lightgbm.InitCollector(c.SmartCollectorSize)
 }
 
-func closeSmartGroups() {
+func closeSmart() {
 	for _, proxy := range tunnel.Proxies() {
 		if proxy.Type() == C.Smart {
-			proxyAdapter := proxy.Adapter()
-			if smart, ok := proxyAdapter.(*outboundgroup.Smart); ok {
+			adapter := proxy.Adapter()
+			if smart, ok := adapter.(*outboundgroup.Smart); ok {
 				smart.Close()
 			}
 		}
@@ -559,7 +562,7 @@ func Shutdown() {
 	tproxy.CleanupTProxyIPTables()
 	resolver.StoreFakePoolState()
 
-	closeSmartGroups()
+	closeSmart()
 
 	log.Warnln("Mihomo shutting down")
 }
