@@ -16,14 +16,14 @@ require (
 	github.com/insomniacslk/dhcp v0.0.0-20250109001534-8abf58130905
 	github.com/klauspost/compress v1.17.9 // lastest version compatible with golang1.20
 	github.com/mdlayher/netlink v1.7.2
-	github.com/metacubex/amneziawg-go v0.0.0-20250902133113-a7f637c14281
+	github.com/metacubex/amneziawg-go v0.0.0-20251104174305-5a0e9f7e361d
 	github.com/metacubex/bart v0.26.0
 	github.com/metacubex/bbolt v0.0.0-20250725135710-010dbbbb7a5b
 	github.com/metacubex/blake3 v0.1.0
 	github.com/metacubex/chacha v0.1.5
 	github.com/metacubex/fswatch v0.1.1
 	github.com/metacubex/gopacket v1.1.20-0.20230608035415-7e2f98a3e759
-	github.com/metacubex/kcp-go v0.0.0-20251007183319-0df1aec1639a
+	github.com/metacubex/kcp-go v0.0.0-20251105084629-8c93f4bf37be
 	github.com/metacubex/quic-go v0.55.1-0.20251024060151-bd465f127128
 	github.com/metacubex/randv2 v0.2.0
 	github.com/metacubex/restls-client-go v0.1.7

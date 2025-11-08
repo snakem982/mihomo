@@ -7,7 +7,7 @@ require (
 	github.com/docker/go-connections v0.4.0
 	github.com/metacubex/mihomo v0.0.0
 	github.com/miekg/dns v1.1.63
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	golang.org/x/net v0.35.0
 )
 
@@ -39,7 +39,7 @@ require (
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/gobwas/ws v1.4.0 // indirect
-	github.com/gofrs/uuid/v5 v5.3.2 // indirect
+	github.com/gofrs/uuid/v5 v5.4.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
@@ -56,13 +56,13 @@ require (
 	github.com/mdlayher/netlink v1.7.2 // indirect
 	github.com/mdlayher/socket v0.4.1 // indirect
 	github.com/metacubex/gopacket v1.1.20-0.20230608035415-7e2f98a3e759 // indirect
-	github.com/metacubex/gvisor v0.0.0-20250324165734-5857f47bd43b // indirect
-	github.com/metacubex/quic-go v0.53.1-0.20250628094454-fda5262d1d9c // indirect
-	github.com/metacubex/sing-quic v0.0.0-20250628100430-24f13f1e846e // indirect
-	github.com/metacubex/sing-shadowsocks v0.2.11-0.20250621023810-0e9ef9dd0c92 // indirect
-	github.com/metacubex/sing-shadowsocks2 v0.2.5-0.20250621023950-93d605a2143d // indirect
-	github.com/metacubex/sing-tun v0.4.7-0.20250708161036-39e27fac35ed // indirect
-	github.com/metacubex/sing-vmess v0.2.2 // indirect
+	github.com/metacubex/gvisor v0.0.0-20250919004547-6122b699a301 // indirect
+	github.com/metacubex/quic-go v0.55.1-0.20251024060151-bd465f127128 // indirect
+	github.com/metacubex/sing-quic v0.0.0-20251004051927-c45ee18473bb // indirect
+	github.com/metacubex/sing-shadowsocks v0.2.12 // indirect
+	github.com/metacubex/sing-shadowsocks2 v0.2.7 // indirect
+	github.com/metacubex/sing-tun v0.4.8 // indirect
+	github.com/metacubex/sing-vmess v0.2.4 // indirect
 	github.com/metacubex/sing-wireguard v0.0.0-20250503063753-2dc62acc626f // indirect
 	github.com/moby/term v0.5.0 // indirect
 	github.com/morikuni/aec v1.0.0 // indirect
@@ -90,7 +90,7 @@ require (
 	github.com/sagernet/tfo-go v0.0.0-20230816093905-5a5c285d44a6 // indirect
 	github.com/sagernet/utls v0.0.0-20230309024959-6732c2ab36f2 // indirect
 	github.com/sagernet/wireguard-go v0.0.0-20230807125731-5d4a7ef2dc5f // indirect
-	github.com/samber/lo v1.51.0 // indirect
+	github.com/samber/lo v1.52.0 // indirect
 	github.com/scjalliance/comshim v0.0.0-20230315213746-5e51f40bd3b9 // indirect
 	github.com/shirou/gopsutil/v3 v3.23.10 // indirect
 	github.com/shoenig/go-m1cpu v0.1.6 // indirect
