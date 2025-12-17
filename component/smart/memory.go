@@ -1,9 +1,3 @@
-// This file is part of the Mihomo project: https://github.com/vernesong/mihomo
-// Copyright (C) 2025 vernesong and contributors
-//
-// This file is licensed under the GNU General Public License v3.0.
-// You may obtain a copy of the License at https://www.gnu.org/licenses/gpl-3.0.html
-
 package smart
 
 import (
@@ -16,113 +10,60 @@ import (
 	"github.com/metacubex/mihomo/common/lru"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/log"
-	"github.com/metacubex/mihomo/tunnel"
 )
 
 func InitCache() {
 	globalCacheParams.mutex.Lock()
 	defer globalCacheParams.mutex.Unlock()
 
-	if dataCache != nil {
+	if unwrapCache != nil {
 		return
 	}
 
 	globalCacheParams.BatchSaveThreshold = MinBatchThreshLimit
-	globalCacheParams.MaxDomains = MinDomainsLimit
-	globalCacheParams.PrefetchLimit = MinPrefetchDomainsLimit
-	globalCacheParams.CacheMaxSize = MinDomainsLimit + MinPrefetchDomainsLimit
+	globalCacheParams.MaxTargets = MinTargetsLimit
 	globalCacheParams.MemoryLimit = getSystemMemoryLimit()
 
-	dataCache = lru.New[string, interface{}](
-		lru.WithSize[string, interface{}](globalCacheParams.CacheMaxSize),
-		lru.WithAge[string, interface{}](CacheMaxAge),
+	targetCache = lru.New[string, string](
+		lru.WithSize[string, string](globalCacheParams.MaxTargets / 4),
 	)
 
-	domainCache = lru.New[string, string](
-		lru.WithSize[string, string](globalCacheParams.MaxDomains),
-		lru.WithAge[string, string](CacheMaxAge),
-	)
-
-	prefixCountCache = lru.New[string, int](
-		lru.WithSize[string, int](2000),
-		lru.WithAge[string, int](300),
-	)
-
-	nodeStatesCache = lru.New[string, map[string][]byte](
-		lru.WithSize[string, map[string][]byte](2000),
-		lru.WithAge[string, map[string][]byte](60),
-	)
-
-	// lazy refresh
-	unwrapCache = lru.New[string, []C.Proxy](
-		lru.WithSize[string, []C.Proxy](500),
-		lru.WithAge[string, []C.Proxy](300),
+	unwrapCache = lru.New[string, UnwrapMap](
+		lru.WithSize[string, UnwrapMap](globalCacheParams.MaxTargets / 4),
 	)
 
 	recordCache = lru.New[string, *AtomicStatsRecord](
-		lru.WithSize[string, *AtomicStatsRecord](globalCacheParams.MaxDomains/2),
-		lru.WithAge[string, *AtomicStatsRecord](CacheMaxAge),
+		lru.WithSize[string, *AtomicStatsRecord](globalCacheParams.MaxTargets / 4),
+	)
+
+	dbResultCache = lru.New[string, map[string][]byte](
+		lru.WithSize[string, map[string][]byte](globalCacheParams.MaxTargets/4),
+		lru.WithAge[string, map[string][]byte](300),
 	)
 }
 
-// 从全局缓存获取值
-func GetCacheValue(cacheKey string) (interface{}, bool) {
-	return dataCache.Get(cacheKey)
-}
-
-// 设置全局缓存值
-func SetCacheValue(cacheKey string, value interface{}) {
-	dataCache.Set(cacheKey, value)
-}
-
-// 删除全局缓存值
-func DeleteCacheValue(cacheKey string) {
-	dataCache.Delete(cacheKey)
-}
-
-// 按前缀获取缓存值
-func GetCacheValuesByPrefix(prefix string) map[string]interface{} {
-	return dataCache.FilterByKeyPrefix(prefix)
-}
-
-// 按前缀移除缓存值
-func RemoveCacheValuesByPrefix(prefix string) {
-	dataCache.RemoveByKeyPrefix(prefix)
-}
-
 // 存储预取结果
-func (s *Store) StorePrefetchResult(group, config string, target string, asnNumber string, isUDP bool, proxyNames []string, weights []float64) {
+func (s *Store) StorePrefetchResult(group, config string, target string, asnNumber string, isUDP bool, proxyNames []string, weights []float64, oldNodesCount int) {
 	if target == "" || len(proxyNames) == 0 {
 		return
 	}
 
-	targetCacheKey := FormatCacheKey(KeyTypePrefetch, config, group, target)
+	targetCacheKey := FormatDBKey(KeyTypePrefetch, config, group, target)
 
 	var pm PrefetchMap
-	if value, found := GetCacheValue(targetCacheKey); found {
-		if bv, ok := value.([]byte); ok {
-			json.Unmarshal(bv, &pm)
-		}
-	}
-	nodeWeight := NodeWithWeight{Nodes: proxyNames, Weights: weights}
+
+	nodeWeight := NodesWithWeights{Nodes: proxyNames, Weights: weights}
 	if isUDP {
 		pm.UDP = nodeWeight
 	} else {
 		pm.TCP = nodeWeight
 	}
+	if oldNodesCount == 0 {
+		pm.UpdatedTime = time.Now().Unix()
+	}
 	data, err := json.Marshal(pm)
 	if err != nil {
 		return
-	}
-	SetCacheValue(targetCacheKey, data)
-
-	if asnNumber != "" && !cdnASNs[asnNumber] {
-		asnCacheKey := FormatCacheKey(KeyTypePrefetch, config, group, asnNumber)
-		refData, err := json.Marshal(PrefetchMap{Ref: targetCacheKey})
-		if err != nil {
-			return
-		}
-		SetCacheValue(asnCacheKey, refData)
 	}
 
 	appendToGlobalQueue(StoreOperation{
@@ -133,10 +74,31 @@ func (s *Store) StorePrefetchResult(group, config string, target string, asnNumb
 		Data:   data,
 	})
 
-	needFlush := len(getGlobalQueueSnapshot()) >= GetBatchSaveThreshold()
-	if needFlush {
-		go s.FlushQueue(true)
+	if asnNumber != "" && !CdnASNs[asnNumber] {
+		var asnPm PrefetchMap
+		if isUDP {
+			asnPm.RefUDP = targetCacheKey
+		} else {
+			asnPm.RefTCP = targetCacheKey
+		}
+		if oldNodesCount == 0 {
+			asnPm.UpdatedTime = time.Now().Unix()
+		}
+		asnData, asnErr := json.Marshal(asnPm)
+		if asnErr != nil {
+			return
+		}
+
+		appendToGlobalQueue(StoreOperation{
+			Type:   OpSavePrefetch,
+			Group:  group,
+			Config: config,
+			Target: asnNumber,
+			Data:   asnData,
+		})
 	}
+
+	go s.FlushQueue(false)
 }
 
 // 获取预取结果
@@ -146,7 +108,10 @@ func (s *Store) GetPrefetchResult(group, config string, target string, asnNumber
 	}
 
 	findResult := func(pm PrefetchMap) ([]string, []float64) {
-		var res NodeWithWeight
+		if pm.UpdatedTime > 0 && time.Now().Unix()-pm.UpdatedTime > PrefetchCacheMaxAge {
+			return nil, nil
+		}
+		var res NodesWithWeights
 		if isUDP {
 			res = pm.UDP
 		} else {
@@ -158,20 +123,68 @@ func (s *Store) GetPrefetchResult(group, config string, target string, asnNumber
 		return nil, nil
 	}
 
-	if asnNumber != "" && !cdnASNs[asnNumber] {
-		asnCacheKey := FormatCacheKey(KeyTypePrefetch, config, group, asnNumber)
-		if value, found := GetCacheValue(asnCacheKey); found {
-			if bv, ok := value.([]byte); ok {
+	getFromQueue := func(ops []StoreOperation, group, config, target string) (PrefetchMap, bool) {
+		for _, op := range ops {
+			if op.Type == OpSavePrefetch && op.Group == group && op.Config == config && op.Target == target {
 				var pm PrefetchMap
-				if json.Unmarshal(bv, &pm) == nil && pm.Ref != "" {
-					if refValue, refFound := GetCacheValue(pm.Ref); refFound {
-						if refBv, refOk := refValue.([]byte); refOk {
-							var refPm PrefetchMap
-							if json.Unmarshal(refBv, &refPm) == nil {
-								if nodes, weights := findResult(refPm); nodes != nil {
-									return nodes, weights
-								}
-							}
+				if json.Unmarshal(op.Data, &pm) == nil {
+					return pm, true
+				}
+			}
+		}
+		return PrefetchMap{}, false
+	}
+
+	getFromDB := func(pathPrefix string) (PrefetchMap, bool) {
+		rawResult, err := s.GetSubBytesByPath(pathPrefix)
+		if err != nil {
+			return PrefetchMap{}, false
+		}
+		for _, data := range rawResult {
+			var pm PrefetchMap
+			if json.Unmarshal(data, &pm) == nil {
+				return pm, true
+			}
+		}
+		return PrefetchMap{}, false
+	}
+
+	getRefKey := func(pm PrefetchMap, isUDP bool) string {
+		if isUDP {
+			return pm.RefUDP
+		}
+		return pm.RefTCP
+	}
+
+	ops := getGlobalQueueSnapshot()
+
+	// ASN
+	if asnNumber != "" && !CdnASNs[asnNumber] {
+		asnPathPrefix := FormatDBKey(KeyTypePrefetch, config, group, asnNumber)
+
+		if pm, ok := getFromQueue(ops, group, config, asnNumber); ok {
+			if refKey := getRefKey(pm, isUDP); refKey != "" {
+				parts := strings.Split(refKey, ":")
+				if len(parts) >= 4 {
+					parsedTarget := strings.Join(parts[3:], ":")
+					if refPm, ok := getFromQueue(ops, group, config, parsedTarget); ok {
+						if nodes, weights := findResult(refPm); nodes != nil {
+							return nodes, weights
+						}
+					}
+				}
+			}
+		}
+
+		if pm, ok := getFromDB(asnPathPrefix); ok {
+			if refKey := getRefKey(pm, isUDP); refKey != "" {
+				parts := strings.Split(refKey, ":")
+				if len(parts) >= 4 {
+					parsedTarget := strings.Join(parts[3:], ":")
+					targetPathPrefix := FormatDBKey(KeyTypePrefetch, config, group, parsedTarget)
+					if refPm, ok := getFromDB(targetPathPrefix); ok {
+						if nodes, weights := findResult(refPm); nodes != nil {
+							return nodes, weights
 						}
 					}
 				}
@@ -179,100 +192,22 @@ func (s *Store) GetPrefetchResult(group, config string, target string, asnNumber
 		}
 	}
 
-	if asnNumber == "" || cdnASNs[asnNumber] {
-		targetCacheKey := FormatCacheKey(KeyTypePrefetch, config, group, target)
-		if value, found := GetCacheValue(targetCacheKey); found {
-			if bv, ok := value.([]byte); ok {
-				var pm PrefetchMap
-				if json.Unmarshal(bv, &pm) == nil {
-					if nodes, weights := findResult(pm); nodes != nil {
-						return nodes, weights
-					}
-				}
-			}
+	// target
+	pathPrefix := FormatDBKey(KeyTypePrefetch, config, group, target)
+
+	if pm, ok := getFromQueue(ops, group, config, target); ok {
+		if nodes, weights := findResult(pm); nodes != nil {
+			return nodes, weights
 		}
 	}
 
-	ops := getGlobalQueueSnapshot()
-	for _, op := range ops {
-		if op.Type == OpSavePrefetch && op.Group == group && op.Config == config && op.Target == target {
-			var pm PrefetchMap
-			if err := json.Unmarshal(op.Data, &pm); err == nil {
-				if nodes, weights := findResult(pm); nodes != nil {
-					return nodes, weights
-				}
-			}
-		}
-	}
-
-	pathPrefix := FormatDBKey("smart", KeyTypePrefetch, config, group, target)
-	rawResult, err := s.GetSubBytesByPath(pathPrefix)
-	if err != nil {
-		return nil, nil
-	}
-
-	for _, data := range rawResult {
-		var pm PrefetchMap
-		if err := json.Unmarshal(data, &pm); err == nil {
-			if nodes, weights := findResult(pm); nodes != nil {
-				return nodes, weights
-			}
+	if pm, ok := getFromDB(pathPrefix); ok {
+		if nodes, weights := findResult(pm); nodes != nil {
+			return nodes, weights
 		}
 	}
 
 	return nil, nil
-}
-
-// 预加载所有预计算结果
-func (s *Store) LoadAllPrefetchResults(group, config string, limit int) int {
-	var (
-		loadCount     int
-		parseFailures int
-	)
-
-	if group == "" || config == "" {
-		return 0
-	}
-
-	prefetchPrefix := FormatDBKey("smart", KeyTypePrefetch, config, group)
-	results, err := s.DBViewPrefixScan(prefetchPrefix, limit)
-	if err != nil {
-		log.Warnln("[SmartStore] Failed to load prefetch results: %v", err)
-		return 0
-	}
-
-	for path, v := range results {
-		parts := strings.Split(path, "/")
-		if len(parts) < 5 {
-			continue
-		}
-
-		target := parts[4]
-		if target == "" {
-			continue
-		}
-
-		var pm PrefetchMap
-		if err := json.Unmarshal(v, &pm); err != nil {
-			parseFailures++
-			continue
-		}
-
-		cacheKey := FormatCacheKey(KeyTypePrefetch, config, group, target)
-		SetCacheValue(cacheKey, v)
-
-		loadCount++
-
-		if loadCount >= limit {
-			break
-		}
-	}
-
-	if err != nil {
-		log.Warnln("[SmartStore] Failed to load prefetch results: %v", err)
-	}
-
-	return loadCount
 }
 
 func (s *Store) StoreUnwrapResult(group, config string, target string, asnNumber string, isUDP bool, proxies []C.Proxy) {
@@ -280,38 +215,124 @@ func (s *Store) StoreUnwrapResult(group, config string, target string, asnNumber
 		return
 	}
 
-	resultType := WeightTypeTCP
-	if isUDP {
-		resultType = WeightTypeUDP
+	names := make([]string, len(proxies))
+	for i, p := range proxies {
+		names[i] = p.Name()
 	}
 
-	key := fmt.Sprintf("%s:%s:%s:%s", config, group, resultType, target)
+	targetKey := fmt.Sprintf("%s:%s:%s", config, group, target)
 
-	if asnNumber != "" {
-		key = fmt.Sprintf("%s:%s:%s:%s", config, group, resultType, asnNumber)
+	if asnNumber != "" && !CdnASNs[asnNumber] {
+		asnKey := fmt.Sprintf("%s:%s:%s", config, group, asnNumber)
+		if value, found := unwrapCache.Get(asnKey); found {
+			um := value
+			if isUDP {
+				if len(um.UDP) == 0 {
+					um.UDP = names
+					unwrapCache.Set(asnKey, um)
+				}
+			} else {
+				if len(um.TCP) == 0 {
+					um.TCP = names
+					unwrapCache.Set(asnKey, um)
+				}
+			}
+		} else {
+			um := UnwrapMap{}
+			if isUDP {
+				um.UDP = names
+			} else {
+				um.TCP = names
+			}
+			unwrapCache.Set(asnKey, um)
+		}
+
+		if value, found := unwrapCache.Get(targetKey); found {
+			um := value
+			if isUDP {
+				if um.RefUDP == "" {
+					um.RefUDP = asnKey
+					unwrapCache.Set(targetKey, um)
+				}
+			} else {
+				if um.RefTCP == "" {
+					um.RefTCP = asnKey
+					unwrapCache.Set(targetKey, um)
+				}
+			}
+		} else {
+			um := UnwrapMap{}
+			if isUDP {
+				um.RefUDP = asnKey
+			} else {
+				um.RefTCP = asnKey
+			}
+			unwrapCache.Set(targetKey, um)
+		}
+	} else {
+		if value, found := unwrapCache.Get(targetKey); found {
+			um := value
+			if isUDP {
+				um.UDP = names
+			} else {
+				um.TCP = names
+			}
+			unwrapCache.Set(targetKey, um)
+		} else {
+			um := UnwrapMap{}
+			if isUDP {
+				um.UDP = names
+			} else {
+				um.TCP = names
+			}
+			unwrapCache.Set(targetKey, um)
+		}
 	}
-
-	unwrapCache.Set(key, proxies)
 }
 
-func (s *Store) GetUnwrapResult(group, config, target, asnNumber string, isUDP bool) []C.Proxy {
+func (s *Store) GetUnwrapResult(group, config, target, asnNumber string, isUDP bool) []string {
 	if target == "" {
 		return nil
 	}
 
-	resultType := WeightTypeTCP
-	if isUDP {
-		resultType = WeightTypeUDP
+	targetKey := fmt.Sprintf("%s:%s:%s", config, group, target)
+
+	if value, found := unwrapCache.Get(targetKey); found {
+		um := value
+		var refKey string
+		if isUDP {
+			refKey = um.RefUDP
+		} else {
+			refKey = um.RefTCP
+		}
+		if refKey != "" {
+			if refValue, found := unwrapCache.Get(refKey); found {
+				refUm := refValue
+				if isUDP {
+					return refUm.UDP
+				} else {
+					return refUm.TCP
+				}
+			}
+		} else {
+			if isUDP {
+				return um.UDP
+			} else {
+				return um.TCP
+			}
+		}
 	}
 
-	key := fmt.Sprintf("%s:%s:%s:%s", config, group, resultType, target)
-
-	if asnNumber != "" {
-		key = fmt.Sprintf("%s:%s:%s:%s", config, group, resultType, asnNumber)
-	}
-
-	if value, ok := unwrapCache.Get(key); ok {
-		return value
+	if asnNumber != "" && !CdnASNs[asnNumber] {
+		asnKey := fmt.Sprintf("%s:%s:%s", config, group, asnNumber)
+		if value, found := unwrapCache.Get(asnKey); found {
+			um := value
+			if isUDP {
+				return um.UDP
+			} else {
+				return um.TCP
+			}
+		}
 	}
 
 	return nil
@@ -322,300 +343,100 @@ func (s *Store) DeleteUnwrapResult(group, config string, target string, asnNumbe
 		return
 	}
 
-	resultType := WeightTypeTCP
-	if isUDP {
-		resultType = WeightTypeUDP
+	targetKey := fmt.Sprintf("%s:%s:%s", config, group, target)
+
+	if value, found := unwrapCache.Get(targetKey); found {
+		um := value
+		if isUDP {
+			um.UDP = nil
+			um.RefUDP = ""
+		} else {
+			um.TCP = nil
+			um.RefTCP = ""
+		}
+		if len(um.TCP) == 0 && len(um.UDP) == 0 && um.RefTCP == "" && um.RefUDP == "" {
+			unwrapCache.Delete(targetKey)
+		} else {
+			unwrapCache.Set(targetKey, um)
+		}
 	}
 
-	key := fmt.Sprintf("%s:%s:%s:%s", config, group, resultType, target)
-
-	if asnNumber != "" {
-		key = fmt.Sprintf("%s:%s:%s:%s", config, group, resultType, asnNumber)
+	if asnNumber != "" && !CdnASNs[asnNumber] {
+		asnKey := fmt.Sprintf("%s:%s:%s", config, group, asnNumber)
+		if value, found := unwrapCache.Get(asnKey); found {
+			um := value
+			if isUDP {
+				um.UDP = nil
+			} else {
+				um.TCP = nil
+			}
+			if len(um.TCP) == 0 && len(um.UDP) == 0 {
+				unwrapCache.Delete(asnKey)
+			} else {
+				unwrapCache.Set(asnKey, um)
+			}
+		}
 	}
-
-	unwrapCache.Delete(key)
 }
 
-// 删除缓存结果
-func (s *Store) DeleteCacheResult(keyType, config, group, key1, key2 string) {
-	var cachePrefix string
-	var dbPrefix string
-
-	if key1 == "" && key2 == "" {
-		cachePrefix = FormatCacheKey(keyType, config, group, "")
-		dbPrefix = FormatDBKey("smart", keyType, config, group, "")
-		RemoveCacheValuesByPrefix(cachePrefix)
-		s.DeleteByPath(dbPrefix)
-		return
-	}
-
-	if key2 != "" {
-		cachePrefix = FormatCacheKey(keyType, config, group, key1, key2)
-		dbPrefix = FormatDBKey("smart", keyType, config, group, key1, key2)
-		DeleteCacheValue(cachePrefix)
-		s.DeleteByPath(dbPrefix)
-		return
-	}
-
-	cachePrefix = FormatCacheKey(keyType, config, group, key1)
-	dbPrefix = FormatDBKey("smart", keyType, config, group, key1)
-	RemoveCacheValuesByPrefix(cachePrefix)
-	s.DeleteByPath(dbPrefix)
+func (s *Store) ClearUnwrapResult(group, config string) {
+	cachePrefix := fmt.Sprintf("%s:%s:%s", config, group, "")
+	unwrapCache.RemoveByKeyPrefix(cachePrefix)
 }
 
 // 调整缓存参数
 func (s *Store) AdjustCacheParameters() {
-	memoryUsagePercent := GetSystemMemoryUsage()
-	memoryUsage := memoryUsagePercent / 100.0
-
-	smartGroupCount := 0
-	for _, proxy := range tunnel.Proxies() {
-		if proxy.Type() == C.Smart {
-			smartGroupCount++
-		}
-	}
+	memoryUsage := GetSystemMemoryUsage()
 
 	globalCacheParams.mutex.Lock()
+	defer globalCacheParams.mutex.Unlock()
 
 	isFirstRun := globalCacheParams.LastMemoryUsage == 0
 	needAdjust := isFirstRun
 
 	if !isFirstRun {
-		memoryChanged := math.Abs(memoryUsage-globalCacheParams.LastMemoryUsage) > 0.1
+		memoryChanged := math.Abs(memoryUsage-globalCacheParams.LastMemoryUsage)*globalCacheParams.MemoryLimit > 20
 		needAdjust = memoryChanged || memoryUsage > 0.7
 	}
 
 	globalCacheParams.LastMemoryUsage = memoryUsage
 
 	if !needAdjust && !isFirstRun {
-		globalCacheParams.mutex.Unlock()
 		return
 	}
 
-	var newCacheSize int
-	var cacheMaxAge int64 = CacheMaxAge
-
 	if memoryUsage > 0.9 {
-		globalCacheParams.MaxDomains = MinDomainsLimit
+		globalCacheParams.MaxTargets = MinTargetsLimit
 		globalCacheParams.BatchSaveThreshold = MinBatchThreshLimit
-		globalCacheParams.PrefetchLimit = MinPrefetchDomainsLimit
-		globalCacheParams.CacheMaxSize = (globalCacheParams.MaxDomains + globalCacheParams.PrefetchLimit) * smartGroupCount
-		newCacheSize = globalCacheParams.CacheMaxSize / 2
-		cacheMaxAge = CacheMaxAge / 2
 	} else {
-		adjustFactor := 4 * memoryUsage * (1 - memoryUsage)
-
-		if memoryUsage > 0.85 {
-			globalCacheParams.MaxDomains = MinDomainsLimit
-			globalCacheParams.BatchSaveThreshold = MinBatchThreshLimit
-			globalCacheParams.PrefetchLimit = MinPrefetchDomainsLimit
-			globalCacheParams.CacheMaxSize = (globalCacheParams.MaxDomains + globalCacheParams.PrefetchLimit) * smartGroupCount
-		} else {
-			value := MinDomainsLimit + int(float64(MaxDomainsLimit-MinDomainsLimit)*adjustFactor*MemoryDomainsFactor)
-			globalCacheParams.MaxDomains = ClampValue(value, MinDomainsLimit, MaxDomainsLimit)
-
-			value = MinBatchThreshLimit + int(float64(MaxBatchThreshLimit-MinBatchThreshLimit)*adjustFactor*MemoryBatchFactor)
-			globalCacheParams.BatchSaveThreshold = ClampValue(value, MinBatchThreshLimit, MaxBatchThreshLimit)
-
-			value = MinPrefetchDomainsLimit + int(float64(MaxPrefetchDomainsLimit-MinPrefetchDomainsLimit)*adjustFactor*MemoryPrefetchFactor)
-			globalCacheParams.PrefetchLimit = ClampValue(value, MinPrefetchDomainsLimit, MaxPrefetchDomainsLimit)
-
-			globalCacheParams.CacheMaxSize = (globalCacheParams.MaxDomains + globalCacheParams.PrefetchLimit) * smartGroupCount
-		}
-
-		newCacheSize = globalCacheParams.CacheMaxSize
+		adjustFactor := (1 - memoryUsage) * 0.5
+		globalCacheParams.MaxTargets = MinTargetsLimit + int(float64(MaxTargetsLimit-MinTargetsLimit)*adjustFactor)
+		globalCacheParams.BatchSaveThreshold = MinBatchThreshLimit + int(float64(MaxBatchThreshLimit-MinBatchThreshLimit)*adjustFactor)
 	}
 
-	log.Infoln("[SmartStore] Parameters adjusted: MaxDomains=%d, CacheSize=%d, BatchThreshold=%d, PrefetchLimit=%d",
-		globalCacheParams.MaxDomains, globalCacheParams.CacheMaxSize,
-		globalCacheParams.BatchSaveThreshold, globalCacheParams.PrefetchLimit)
+	log.Infoln("[SmartStore] Parameters adjusted: MaxTargets=%d, BatchThreshold=%d",
+		globalCacheParams.MaxTargets,
+		globalCacheParams.BatchSaveThreshold)
 
-	globalCacheParams.mutex.Unlock()
+	targetCache = lru.ResetLRU(targetCache, globalCacheParams.MaxTargets/4)
+	unwrapCache = lru.ResetLRU(unwrapCache, globalCacheParams.MaxTargets/4)
+	recordCache = lru.ResetLRU(recordCache, globalCacheParams.MaxTargets/4)
+	dbResultCache = lru.ResetLRU(dbResultCache, globalCacheParams.MaxTargets/4, lru.WithAge[string, map[string][]byte](300))
 
-	newDataCache := lru.New[string, interface{}](
-		lru.WithSize[string, interface{}](newCacheSize),
-		lru.WithAge[string, interface{}](cacheMaxAge),
-	)
-
-	domainCache = lru.New[string, string](
-		lru.WithSize[string, string](globalCacheParams.MaxDomains),
-		lru.WithAge[string, string](cacheMaxAge),
-	)
-
-	prefixCountCache = lru.New[string, int](
-		lru.WithSize[string, int](2000),
-		lru.WithAge[string, int](300),
-	)
-
-	nodeStatesCache = lru.New[string, map[string][]byte](
-		lru.WithSize[string, map[string][]byte](2000),
-		lru.WithAge[string, map[string][]byte](60),
-	)
-
-	unwrapCache = lru.New[string, []C.Proxy](
-		lru.WithSize[string, []C.Proxy](500),
-		lru.WithAge[string, []C.Proxy](300),
-	)
-
-	recordCache = lru.New[string, *AtomicStatsRecord](
-		lru.WithSize[string, *AtomicStatsRecord](globalCacheParams.MaxDomains/2),
-		lru.WithAge[string, *AtomicStatsRecord](CacheMaxAge),
-	)
-
-	var entries map[string]interface{}
-	var preserveRatio float64
-
-	if dataCache != nil {
-		switch {
-		case memoryUsage > 0.9:
-			preserveRatio = 0.2
-			entries = GetCacheValuesByPrefix(KeyTypeNode + ":")
-			prefetchEntries := GetCacheValuesByPrefix(KeyTypePrefetch + ":")
-			for k, v := range prefetchEntries {
-				entries[k] = v
-			}
-		case memoryUsage > 0.8:
-			preserveRatio = 0.4
-			entries = GetCacheValuesByPrefix(KeyTypeNode + ":")
-			prefetchEntries := GetCacheValuesByPrefix(KeyTypePrefetch + ":")
-			for k, v := range prefetchEntries {
-				entries[k] = v
-			}
-		case memoryUsage > 0.7:
-			preserveRatio = 0.6
-			entries = GetCacheValuesByPrefix("")
-		default:
-			preserveRatio = 0.8
-			entries = GetCacheValuesByPrefix("")
-		}
-
-		dataCount := 0
-		maxItems := int(float64(len(entries)) * preserveRatio)
-
-		// 优先级顺序: 节点状态 > 预计算结果 > 统计数据 > 其他
-		for k, v := range entries {
-			if dataCount >= maxItems {
-				break
-			}
-
-			if strings.HasPrefix(k, KeyTypeNode) ||
-				strings.HasPrefix(k, KeyTypePrefetch) ||
-				strings.HasPrefix(k, KeyTypeStats) ||
-				strings.HasPrefix(k, KeyTypeRanking) {
-
-				if bv, ok := v.([]byte); ok && len(bv) > 0 {
-					newDataCache.Set(k, bv)
-					dataCount++
-				}
-				continue
-			}
-
-			if dataCount < maxItems {
-				newDataCache.Set(k, v)
-				dataCount++
-			}
-		}
-
-		log.Infoln("[SmartStore] Cache adjusted: preserved %d/%d items (%.1f%%) under memory pressure %.1f%%",
-			dataCount, len(entries), float64(dataCount)/float64(len(entries))*100, memoryUsagePercent)
-	}
-
-	globalCacheLock.Lock()
-	dataCache = newDataCache
-	globalCacheLock.Unlock()
-
-	queueLength := len(getGlobalQueueSnapshot())
-
-	if (memoryUsage > 0.8 && queueLength > 0) ||
-		(memoryUsage > 0.6 && queueLength > globalCacheParams.BatchSaveThreshold/2) {
+	if memoryUsage > 0.8 {
 		go s.FlushQueue(true)
 	}
 }
 
-// 预加载数据
-func (s *Store) PreloadFrequentData(group, config string) {
-	log.Infoln("[SmartStore] Starting data preloading for group [%s], config [%s]", group, config)
-
-	globalCacheParams.mutex.RLock()
-	domainLimit := globalCacheParams.MaxDomains / 2
-	prefetchLoadLimit := globalCacheParams.PrefetchLimit
-	globalCacheParams.mutex.RUnlock()
-
-	start := time.Now()
-
-	prefetchCount := s.LoadAllPrefetchResults(group, config, prefetchLoadLimit)
-
-	stateData, err := s.GetNodeStates(group, config)
-	nodeStatesCount := 0
-	if err == nil {
-		nodeStatesCount = len(stateData)
-	}
-
-	ranking, _ := s.GetNodeWeightRankingCache(group, config)
-
-	domains := s.GetActiveDomains(group, config, domainLimit)
-
-	log.Infoln("[SmartStore] Preloaded data for group [%s]: %d domains, %d node stats, %d prefetch results, %d node rankings, completed in %.2f seconds",
-		group, len(domains), nodeStatesCount, prefetchCount, len(ranking), time.Since(start).Seconds())
-}
-
 // 按级别清理内存缓存
-func ClearCacheByLevel(level string, config string, group string) {
-	if level == "all" {
-		RemoveCacheValuesByPrefix("")
-	} else if level == "config" {
-		RemoveCacheValuesByPrefix(FormatCacheKey(keyTypeNetwork, config, ""))
-		RemoveCacheValuesByPrefix(FormatCacheKey(KeyTypeFailed, config, ""))
-		RemoveCacheValuesByPrefix(FormatCacheKey(KeyTypeNode, config, ""))
-		RemoveCacheValuesByPrefix(FormatCacheKey(KeyTypeStats, config, ""))
-		RemoveCacheValuesByPrefix(FormatCacheKey(KeyTypeRanking, config, ""))
-		RemoveCacheValuesByPrefix(FormatCacheKey(KeyTypePrefetch, config, ""))
-	} else if level == "group" {
-		RemoveCacheValuesByPrefix(FormatCacheKey(keyTypeNetwork, config, group))
-		RemoveCacheValuesByPrefix(FormatCacheKey(KeyTypeFailed, config, group, ""))
-		RemoveCacheValuesByPrefix(FormatCacheKey(KeyTypeNode, config, group, ""))
-		RemoveCacheValuesByPrefix(FormatCacheKey(KeyTypeStats, config, group, ""))
-		RemoveCacheValuesByPrefix(FormatCacheKey(KeyTypeRanking, config, group, ""))
-		RemoveCacheValuesByPrefix(FormatCacheKey(KeyTypePrefetch, config, group, ""))
-	}
-
-	domainCache.Clear()
-
-	prefixCountCache.Clear()
-
-	nodeStatesCache.Clear()
+func (s *Store) clearCache(level string, config string, group string) {
+	targetCache.Clear()
 
 	unwrapCache.Clear()
 
 	recordCache.Clear()
-}
 
-// 从数据库路径提取缓存键
-func ExtractCachePrefixFromPath(pathStr string) string {
-	pathParts := strings.Split(pathStr, "/")
+	dbResultCache.Clear()
 
-	if len(pathParts) >= 3 && pathParts[0] == "smart" {
-		keyType := pathParts[1]
-		config := pathParts[2]
-		group := ""
-		if len(pathParts) >= 4 {
-			group = pathParts[3]
-		}
-
-		if len(pathParts) >= 6 && keyType == KeyTypeStats {
-			// smart/stats/config/group/domain/node
-			return FormatCacheKey(keyType, config, group, pathParts[4], pathParts[5])
-		} else if len(pathParts) >= 5 && keyType != KeyTypeStats {
-			// smart/keytype/config/group/target
-			return FormatCacheKey(keyType, config, group, pathParts[4])
-		} else if len(pathParts) == 4 {
-			// smart/keytype/config/group
-			return FormatCacheKey(keyType, config, group)
-		} else if len(pathParts) == 3 {
-			// smart/keytype/config
-			return FormatCacheKey(keyType, config, "")
-		}
-	}
-
-	return ""
+	s.FlushQueue(true)
 }

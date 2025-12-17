@@ -1,14 +1,7 @@
-// This file is part of the Mihomo project: https://github.com/vernesong/mihomo
-// Copyright (C) 2025 vernesong and contributors
-//
-// This file is licensed under the GNU General Public License v3.0.
-// You may obtain a copy of the License at https://www.gnu.org/licenses/gpl-3.0.html
-
 package smart
 
 import (
 	"errors"
-	"fmt"
 	"math"
 	"regexp"
 	"runtime"
@@ -21,7 +14,6 @@ import (
 	"github.com/metacubex/mihomo/common/atomic"
 	"github.com/metacubex/mihomo/common/cmd"
 	"github.com/metacubex/mihomo/common/lru"
-	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/log"
 
 	"golang.org/x/net/publicsuffix"
@@ -36,11 +28,9 @@ const (
 
 const (
 	KeyTypePrefetch = "prefetch"
-	KeyTypeFailed   = "failed"
 	KeyTypeNode     = "node"
 	KeyTypeStats    = "stats"
 	KeyTypeRanking  = "ranking"
-	keyTypeNetwork  = "network"
 
 	WeightTypeTCP    = "tcp"
 	WeightTypeUDP    = "udp"
@@ -52,18 +42,14 @@ const (
 	DefaultMinSampleCount = 2
 	RetentionPeriod       = 7 * 24 * time.Hour
 	CacheMaxAge           = 21600
+	PrefetchCacheMaxAge   = 72 * 3600
 
-	MaxDomainsLimit         = 4000
-	MinDomainsLimit         = 300
-	MaxBatchThreshLimit     = 500
-	MinBatchThreshLimit     = 100
-	MaxPrefetchDomainsLimit = 1000
-	MinPrefetchDomainsLimit = 100
+	MaxTargetsLimit     = 1000
+	MinTargetsLimit     = 100
+	MaxBatchThreshLimit = 300
+	MinBatchThreshLimit = 50
 
-	MemoryDomainsFactor   = 0.8
-	MemoryCacheSizeFactor = 0.7
-	MemoryBatchFactor     = 0.7
-	MemoryPrefetchFactor  = 0.7
+	AllowedWeight = 0.4
 
 	RankMostUsed   = "MostUsed"
 	RankOccasional = "OccasionalUsed"
@@ -74,39 +60,26 @@ var (
 	db               *bbolt.DB
 	bucketSmartStats = []byte("smart_stats")
 
-	globalInitInstances = make(map[string]bool)
-	globalInitLock      sync.Mutex
-
 	globalOperationQueue atomic.TypedValue[[]StoreOperation]
 
 	globalCacheParams struct {
 		BatchSaveThreshold int
-		MaxDomains         int
-		PrefetchLimit      int
-		CacheMaxSize       int
+		MaxTargets         int
 		MemoryLimit        float64
 		LastMemoryUsage    float64
 		mutex              sync.RWMutex
 	}
 
-	dataCache       *lru.LruCache[string, interface{}]
-	globalCacheLock sync.RWMutex
+	targetCache *lru.LruCache[string, string]
 
-	cachedMemoryLimit float64
-	memoryLimitOnce   sync.Once
-
-	domainCache *lru.LruCache[string, string]
-
-	prefixCountCache *lru.LruCache[string, int]
-
-	nodeStatesCache *lru.LruCache[string, map[string][]byte]
-
-	unwrapCache *lru.LruCache[string, []C.Proxy]
+	unwrapCache *lru.LruCache[string, UnwrapMap]
 
 	recordCache *lru.LruCache[string, *AtomicStatsRecord]
+
+	dbResultCache *lru.LruCache[string, map[string][]byte]
 )
 
-var cdnASNs = map[string]bool{
+var CdnASNs = map[string]bool{
 	"13335":  true, // Cloudflare
 	"12222":  true, // Akamai
 	"16625":  true, // Akamai
@@ -151,34 +124,49 @@ type (
 		Failure            int64              `json:"failure"`
 		ConnectTime        int64              `json:"connect_time"`
 		Latency            int64              `json:"latency"`
-		LastUsed           time.Time          `json:"last_used"`
+		LastUsed           int64              `json:"last_used"`
 		Weights            map[string]float64 `json:"weights"`
 		UploadTotal        float64            `json:"upload_total"`
 		DownloadTotal      float64            `json:"download_total"`
 		MaxUploadRate      float64            `json:"max_upload_rate"`
 		MaxDownloadRate    float64            `json:"max_download_rate"`
 		ConnectionDuration float64            `json:"connection_duration"`
+		Degraded           bool               `json:"degraded"`
+		Status             int64              `json:"status"`
 	}
 
 	NodeState struct {
-		Name               string         `json:"name"`
-		FailureCount       int            `json:"failure_count"`
-		LastFailure        time.Time      `json:"last_failure"`
-		BlockedUntil       time.Time      `json:"blocked_until"`
-		Degraded           bool           `json:"degraded"`
-		DegradedFactor     float64        `json:"degraded_factor"`
-		DomainFailureCount map[string]int `json:"domain_failure_count"`
+		Name           string  `json:"name"`
+		FailureCount   int     `json:"failure_count"`
+		LastFailure    int64   `json:"last_failure"`
+		BlockedUntil   int64   `json:"blocked_until"`
+		Degraded       bool    `json:"degraded"`
+		DegradedFactor float64 `json:"degraded_factor"`
 	}
 
-	NodeWithWeight struct {
+	NodesWithWeights struct {
 		Nodes   []string  `json:"nodes"`
 		Weights []float64 `json:"weights"`
 	}
 
+	NodeWithWeight struct {
+		Node   string
+		Weight float64
+	}
+
 	PrefetchMap struct {
-		TCP NodeWithWeight `json:"tcp,omitempty"`
-		UDP NodeWithWeight `json:"udp,omitempty"`
-		Ref string         `json:"ref,omitempty"`
+		TCP         NodesWithWeights `json:"tcp,omitempty"`
+		UDP         NodesWithWeights `json:"udp,omitempty"`
+		RefTCP      string           `json:"ref_tcp,omitempty"`
+		RefUDP      string           `json:"ref_udp,omitempty"`
+		UpdatedTime int64            `json:"updated_time,omitempty"`
+	}
+
+	UnwrapMap struct {
+		TCP    []string `json:"tcp,omitempty"`
+		UDP    []string `json:"udp,omitempty"`
+		RefTCP string   `json:"ref_tcp,omitempty"`
+		RefUDP string   `json:"ref_udp,omitempty"`
 	}
 )
 
@@ -189,17 +177,10 @@ func NewStore(newdb *bbolt.DB) *Store {
 	return &Store{}
 }
 
-// 格式化缓存键
-func FormatCacheKey(keyType, config, group string, parts ...string) string {
-	elements := []string{keyType, config, group}
-	elements = append(elements, parts...)
-	return strings.Join(elements, ":")
-}
-
 // 格式化数据库键
-func FormatDBKey(first string, parts ...string) string {
+func FormatDBKey(parts ...string) string {
 	elements := make([]string, 0, len(parts)+1)
-	elements = append(elements, first)
+	elements = append(elements, "smart")
 
 	for _, part := range parts {
 		if part != "" {
@@ -211,11 +192,9 @@ func FormatDBKey(first string, parts ...string) string {
 }
 
 // 获取有效顶级域名加一二级域名并使用通配符处理
-func GetEffectiveDomain(host string, dstIP string) (string, string) {
-	rawHost := host
-
+func GetEffectiveTarget(host string, dstIP string) string {
 	if host == "" {
-		return dstIP, dstIP
+		return dstIP
 	}
 
 	h := strings.ToLower(host)
@@ -287,41 +266,36 @@ func GetEffectiveDomain(host string, dstIP string) (string, string) {
 		return normalizedSub + "." + reg
 	}
 
-	if domainCache != nil {
-		if result, _ := domainCache.GetOrStore(h, func() string {
+	if targetCache != nil {
+		if result, _ := targetCache.GetOrStore(h, func() string {
 			return compute()
 		}); result != "" {
 			if strings.HasPrefix(result, "*.") {
-				domainCache.Set(result, result)
-				domainCache.Set(h, result)
-				return result, rawHost
+				targetCache.Set(result, result)
+				targetCache.Set(h, result)
+				return result
 			}
 
 			if result == h {
 				parts := strings.Split(h, ".")
 				if len(parts) == 2 {
 					wildcard := "*." + h
-					domainCache.Set(h, wildcard)
-					domainCache.Set(wildcard, wildcard)
-					return wildcard, rawHost
+					targetCache.Set(h, wildcard)
+					targetCache.Set(wildcard, wildcard)
+					return wildcard
 				}
 				if len(parts) > 2 {
 					wildcard := "*." + parts[len(parts)-2] + "." + parts[len(parts)-1]
-					if cachedVal, ok := domainCache.Get(wildcard); ok && cachedVal != "" {
-						domainCache.Set(h, cachedVal)
-						return cachedVal, rawHost
+					if cachedVal, ok := targetCache.Get(wildcard); ok && cachedVal != "" {
+						targetCache.Set(h, cachedVal)
+						return cachedVal
 					}
 				}
 			}
 		}
 	}
 
-	return compute(), rawHost
-}
-
-// 限制值在指定范围内
-func ClampValue(value, min, max int) int {
-	return int(math.Min(math.Max(float64(value), float64(min)), float64(max)))
+	return compute()
 }
 
 // 时间衰减
@@ -357,21 +331,6 @@ func GetTimeDecayWithCache(lastUsedTime int64, now int64, minDecay float64, deca
 	return decay
 }
 
-// 根据系统内存计算限制
-func CalculateMemoryBasedLimit(memUsage float64, min, max int, factor float64) int {
-	if memUsage < 0 {
-		memUsage = 0
-	} else if memUsage > 100 {
-		memUsage = 100
-	}
-
-	availFactor := 1.0 - (memUsage / 100.0)
-
-	value := min + int(float64(max-min)*availFactor*factor)
-
-	return ClampValue(value, min, max)
-}
-
 // 获取批量保存阈值
 func GetBatchSaveThreshold() int {
 	globalCacheParams.mutex.RLock()
@@ -394,73 +353,44 @@ func GetSystemMemoryUsage() float64 {
 	memLimit := globalCacheParams.MemoryLimit
 	globalCacheParams.mutex.RUnlock()
 
-	if memLimit <= 0 {
-		memLimit = 100
-	}
-
-	usagePercent := math.Min(inuse/memLimit*100.0, 100.0)
-	return usagePercent
-}
-
-// 检查当前实例是否是特定配置的第一个实例
-func IsFirstInstanceForConfig(config string) bool {
-	globalInitLock.Lock()
-	defer globalInitLock.Unlock()
-
-	key := fmt.Sprintf("%s", config)
-	if globalInitInstances[key] {
-		return false
-	}
-
-	globalInitInstances[key] = true
-	return true
+	return math.Min(inuse/memLimit, 1.0)
 }
 
 func getSystemMemoryLimit() float64 {
-	memoryLimitOnce.Do(func() {
-		var memTotal float64 = 100.0
-		var output string
-		var err error
+	var memTotal float64 = 100.0
+	var output string
+	var err error
 
-		if runtime.GOOS == "windows" {
-			output, err = cmd.ExecCmd("wmic OS get TotalVisibleMemorySize")
-			if err == nil {
-				lines := strings.Split(output, "\n")
-				if len(lines) >= 2 {
-					memStr := strings.TrimSpace(lines[1])
-					memKB, parseErr := strconv.ParseFloat(memStr, 64)
-					if parseErr == nil {
-						memTotal = memKB / 1024.0
-					}
-				}
-			}
-		} else if runtime.GOOS == "linux" || runtime.GOOS == "android" || runtime.GOOS == "darwin" || runtime.GOOS == "freebsd" {
-			output, err = cmd.ExecCmd("grep MemTotal /proc/meminfo")
-			if err == nil {
-				parts := strings.Fields(output)
-				if len(parts) >= 2 {
-					memStr := strings.TrimSuffix(parts[1], "kB")
-					memStr = strings.TrimSpace(memStr)
-					memKB, parseErr := strconv.ParseFloat(memStr, 64)
-					if parseErr == nil {
-						memTotal = memKB / 1024.0
-					}
+	if runtime.GOOS == "windows" {
+		output, err = cmd.ExecCmd("wmic OS get TotalVisibleMemorySize")
+		if err == nil {
+			lines := strings.Split(output, "\n")
+			if len(lines) >= 2 {
+				memStr := strings.TrimSpace(lines[1])
+				memKB, parseErr := strconv.ParseFloat(memStr, 64)
+				if parseErr == nil {
+					memTotal = memKB / 1024.0
 				}
 			}
 		}
-
-		memTotal = memTotal / 4.0
-
-		if memTotal < 100.0 {
-			cachedMemoryLimit = 100.0
-		} else if memTotal > 512.0 {
-			cachedMemoryLimit = 512.0
-		} else {
-			cachedMemoryLimit = memTotal
+	} else if runtime.GOOS == "linux" || runtime.GOOS == "android" || runtime.GOOS == "darwin" || runtime.GOOS == "freebsd" {
+		output, err = cmd.ExecCmd("grep MemTotal /proc/meminfo")
+		if err == nil {
+			parts := strings.Fields(output)
+			if len(parts) >= 2 {
+				memStr := strings.TrimSuffix(parts[1], "kB")
+				memStr = strings.TrimSpace(memStr)
+				memKB, parseErr := strconv.ParseFloat(memStr, 64)
+				if parseErr == nil {
+					memTotal = memKB / 1024.0
+				}
+			}
 		}
-	})
+	}
 
-	return cachedMemoryLimit
+	memTotal = math.Max(100.0, math.Min(memTotal/4.0, 512.0))
+
+	return memTotal
 }
 
 func InitQueue() {
@@ -484,10 +414,6 @@ func replaceGlobalQueue(newQueue []StoreOperation) {
 
 func getGlobalQueueSnapshot() []StoreOperation {
 	return globalOperationQueue.Load()
-}
-
-func swapGlobalQueue(newQueue []StoreOperation) []StoreOperation {
-	return globalOperationQueue.Swap(newQueue)
 }
 
 func updateGlobalQueue(updateFunc func([]StoreOperation) []StoreOperation) {
@@ -558,20 +484,20 @@ func (s *Store) FlushByLevel(level string, config string, group string) error {
 		filterQueueByGroup(group, config)
 	}
 
-	ClearCacheByLevel(level, config, group)
+	s.clearCache(level, config, group)
 
 	if level == "all" {
-		s.DeleteByPath("smart")
+		s.DeleteByPath("smart", false)
 	} else if level == "config" {
-		s.DeleteByPath(FormatDBKey("smart", KeyTypeStats, config))
-		s.DeleteByPath(FormatDBKey("smart", KeyTypeNode, config))
-		s.DeleteByPath(FormatDBKey("smart", KeyTypeRanking, config))
-		s.DeleteByPath(FormatDBKey("smart", KeyTypePrefetch, config))
+		s.DeleteByPath(FormatDBKey(KeyTypeStats, config), false)
+		s.DeleteByPath(FormatDBKey(KeyTypeNode, config), false)
+		s.DeleteByPath(FormatDBKey(KeyTypeRanking, config), false)
+		s.DeleteByPath(FormatDBKey(KeyTypePrefetch, config), false)
 	} else if level == "group" {
-		s.DeleteByPath(FormatDBKey("smart", KeyTypeStats, config, group, ""))
-		s.DeleteByPath(FormatDBKey("smart", KeyTypeNode, config, group, ""))
-		s.DeleteByPath(FormatDBKey("smart", KeyTypeRanking, config, group, ""))
-		s.DeleteByPath(FormatDBKey("smart", KeyTypePrefetch, config, group, ""))
+		s.DeleteByPath(FormatDBKey(KeyTypeStats, config, group), false)
+		s.DeleteByPath(FormatDBKey(KeyTypeNode, config, group), false)
+		s.DeleteByPath(FormatDBKey(KeyTypeRanking, config, group), false)
+		s.DeleteByPath(FormatDBKey(KeyTypePrefetch, config, group), false)
 	}
 
 	return nil

@@ -1,9 +1,3 @@
-// This file is part of the Mihomo project: https://github.com/vernesong/mihomo
-// Copyright (C) 2025 vernesong and contributors
-//
-// This file is licensed under the GNU General Public License v3.0.
-// You may obtain a copy of the License at https://www.gnu.org/licenses/gpl-3.0.html
-
 package lightgbm
 
 import (
@@ -20,12 +14,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dmitryikh/leaves"
 	"github.com/metacubex/mihomo/common/singleflight"
 	mihomoHttp "github.com/metacubex/mihomo/component/http"
 	"github.com/metacubex/mihomo/component/smart"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/log"
+	"github.com/vernesong/leaves"
 )
 
 const (
@@ -531,17 +525,11 @@ func (m *WeightModel) loadModel(path string) error {
 func ReloadModel() {
 	if smartModel != nil {
 		success, err, _ := reloadModel.Do("reload", func() (bool, error) {
-			smartModel.mutex.Lock()
-			defer smartModel.mutex.Unlock()
-
 			modelPath := C.Path.SmartModel()
-
 			if _, err := os.Stat(modelPath); err == nil {
 				if err := smartModel.loadModel(modelPath); err != nil {
-					log.Errorln("[Smart] Failed to reload Model.bin: %v", err)
 					return false, err
 				} else {
-					log.Infoln("[Smart] Model.bin reloaded successfully")
 					return true, nil
 				}
 			}
@@ -718,7 +706,7 @@ func prepareFeatures(input *ModelInput) []float64 {
 
 	// 3. GeoIP特征提取
 	countryFeature := extractGeoIPFeature(input.DestGeoIP)
-	features = append(features, float64(countryFeature)) // 国家/地区特征              // 大洲特征
+	features = append(features, float64(countryFeature)) // 国家/地区特征/大洲特征
 
 	// 4. 目标地址特征处理
 	var addressFeature int
@@ -1083,7 +1071,7 @@ func CreateModelInputFromStatsRecord(record *smart.StatsRecord, metadata *C.Meta
 		MaxdownloadRate:        maxDownloadRate,
 		HistoryMaxDownloadRate: record.MaxDownloadRate,
 		ConnectionDuration:     record.ConnectionDuration,
-		LastUsed:               record.LastUsed.Unix(),
+		LastUsed:               record.LastUsed,
 		IsUDP:                  metadata.NetWork == C.UDP,
 		IsTCP:                  metadata.NetWork == C.TCP,
 	}
@@ -1094,7 +1082,7 @@ func CreateModelInputFromStatsRecord(record *smart.StatsRecord, metadata *C.Meta
 		input.DestIPASN = metadata.DstIPASN
 	}
 
-	input.Host, _ = smart.GetEffectiveDomain(metadata.Host, metadata.DstIP.String())
+	input.Host = smart.GetEffectiveTarget(metadata.Host, metadata.DstIP.String())
 	if metadata.DstIP.IsValid() {
 		input.DestIP = metadata.DstIP.String()
 	}

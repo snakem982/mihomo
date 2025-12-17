@@ -1,9 +1,3 @@
-// This file is part of the Mihomo project: https://github.com/vernesong/mihomo
-// Copyright (C) 2025 vernesong and contributors
-//
-// This file is licensed under the GNU General Public License v3.0.
-// You may obtain a copy of the License at https://www.gnu.org/licenses/gpl-3.0.html
-
 package lightgbm
 
 import (
@@ -47,7 +41,7 @@ func InitCollector(collectSize float64) {
 	}
 
 	smartCollector = &DataCollector{
-		dataPath:           filepath.Join(C.Path.HomeDir(), "/smart/smart_weight_data.csv"),
+		dataPath:           filepath.Join(C.Path.HomeDir(), "smart/smart_weight_data.csv"),
 		smartCollectorSize: smartCollectorSize,
 	}
 

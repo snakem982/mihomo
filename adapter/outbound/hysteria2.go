@@ -9,10 +9,9 @@ import (
 	"strconv"
 	"time"
 
-	CN "github.com/metacubex/mihomo/common/net"
+	N "github.com/metacubex/mihomo/common/net"
 	"github.com/metacubex/mihomo/common/utils"
 	"github.com/metacubex/mihomo/component/ca"
-	"github.com/metacubex/mihomo/component/dialer"
 	"github.com/metacubex/mihomo/component/proxydialer"
 	tlsC "github.com/metacubex/mihomo/component/tls"
 	C "github.com/metacubex/mihomo/constant"
@@ -36,7 +35,6 @@ type Hysteria2 struct {
 
 	option *Hysteria2Option
 	client *hysteria2.Client
-	dialer proxydialer.SingDialer
 }
 
 type Hysteria2Option struct {
@@ -87,7 +85,7 @@ func (h *Hysteria2) ListenPacketContext(ctx context.Context, metadata *C.Metadat
 	if pc == nil {
 		return nil, errors.New("packetConn is nil")
 	}
-	return newPacketConn(CN.NewThreadSafePacketConn(pc), h), nil
+	return newPacketConn(N.NewThreadSafePacketConn(pc), h), nil
 }
 
 // Close implements C.ProxyAdapter
@@ -112,16 +110,16 @@ func NewHysteria2(option Hysteria2Option) (*Hysteria2, error) {
 			name:   option.Name,
 			addr:   addr,
 			tp:     C.Hysteria2,
+			pdName: option.ProviderName,
 			udp:    true,
 			iface:  option.Interface,
 			rmark:  option.RoutingMark,
-			prefer: C.NewDNSPrefer(option.IPVersion),
+			prefer: option.IPVersion,
 		},
 		option: &option,
 	}
-
-	singDialer := proxydialer.NewByNameSingDialer(option.DialerProxy, dialer.NewDialer(outbound.DialOptions()...))
-	outbound.dialer = singDialer
+	outbound.dialer = option.NewDialer(outbound.DialOptions())
+	singDialer := proxydialer.NewSingDialer(outbound.dialer)
 
 	var salamanderPassword string
 	if len(option.Obfs) > 0 {
@@ -192,7 +190,7 @@ func NewHysteria2(option Hysteria2Option) (*Hysteria2, error) {
 		CWND:               option.CWND,
 		UdpMTU:             option.UdpMTU,
 		ServerAddress: func(ctx context.Context) (*net.UDPAddr, error) {
-			udpAddr, err := resolveUDPAddr(ctx, "udp", addr, C.NewDNSPrefer(option.IPVersion))
+			udpAddr, err := resolveUDPAddr(ctx, "udp", addr, option.IPVersion)
 			if err != nil {
 				return nil, err
 			}
