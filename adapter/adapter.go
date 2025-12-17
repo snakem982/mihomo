@@ -2,12 +2,11 @@ package adapter
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"github.com/metacubex/mihomo/common/convert"
+	"github.com/metacubex/tls"
 	"net"
-	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -19,6 +18,8 @@ import (
 	"github.com/metacubex/mihomo/component/ca"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/log"
+
+	"github.com/metacubex/http"
 )
 
 var UnifiedDelay = atomic.NewBool(false)
