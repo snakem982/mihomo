@@ -129,6 +129,7 @@ github.com/metacubex/gvisor v0.0.0-20231001104248-0f672c3fb8d8 h1:npBvaPAT145UY8
 github.com/metacubex/gvisor v0.0.0-20231001104248-0f672c3fb8d8/go.mod h1:ZR6Gas7P1GcADCVBc1uOrA0bLQqDDyp70+63fD/BE2c=
 github.com/metacubex/gvisor v0.0.0-20250324165734-5857f47bd43b/go.mod h1:8LpS0IJW1VmWzUm3ylb0e2SK5QDm5lO/2qwWLZgRpBU=
 github.com/metacubex/gvisor v0.0.0-20250919004547-6122b699a301/go.mod h1:8LpS0IJW1VmWzUm3ylb0e2SK5QDm5lO/2qwWLZgRpBU=
+github.com/metacubex/gvisor v0.0.0-20251227095601-261ec1326fe8/go.mod h1:8LpS0IJW1VmWzUm3ylb0e2SK5QDm5lO/2qwWLZgRpBU=
 github.com/metacubex/quic-go v0.40.1-0.20231130135418-0c1b47cf9394 h1:dIT+KB2hknBCrwVAXPeY9tpzzkOZP5m40yqUteRT6/Y=
 github.com/metacubex/quic-go v0.40.1-0.20231130135418-0c1b47cf9394/go.mod h1:F/t8VnA47xoia8ABlNA4InkZjssvFJ5p6E6jKdbkgAs=
 github.com/metacubex/quic-go v0.52.1-0.20250522021943-aef454b9e639/go.mod h1:Kc6h++Q/zf3AxcUCevJhJwgrskJumv+pZdR8g/E/10k=
@@ -159,6 +160,7 @@ github.com/metacubex/sing-tun v0.4.7-0.20250708161036-39e27fac35ed/go.mod h1:t6a
 github.com/metacubex/sing-tun v0.4.8/go.mod h1:L/TjQY5JEGy8nvsuYmy/XgMFMCPiF0+AWSFCYfS6r9w=
 github.com/metacubex/sing-tun v0.4.9/go.mod h1:L/TjQY5JEGy8nvsuYmy/XgMFMCPiF0+AWSFCYfS6r9w=
 github.com/metacubex/sing-tun v0.4.10/go.mod h1:L/TjQY5JEGy8nvsuYmy/XgMFMCPiF0+AWSFCYfS6r9w=
+github.com/metacubex/sing-tun v0.4.11/go.mod h1:L/TjQY5JEGy8nvsuYmy/XgMFMCPiF0+AWSFCYfS6r9w=
 github.com/metacubex/sing-vmess v0.1.9-0.20230921005247-a0488d7dac74 h1:FtupiyFkaVjFvRa7B/uDtRWg5BNsoyPC9MTev3sDasY=
 github.com/metacubex/sing-vmess v0.1.9-0.20230921005247-a0488d7dac74/go.mod h1:8EWBZpc+qNvf5gmvjAtMHK1/DpcWqzfcBL842K00BsM=
 github.com/metacubex/sing-vmess v0.2.2/go.mod h1:CVDNcdSLVYFgTHQlubr88d8CdqupAUDqLjROos+H9xk=

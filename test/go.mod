@@ -56,12 +56,12 @@ require (
 	github.com/mdlayher/netlink v1.7.2 // indirect
 	github.com/mdlayher/socket v0.4.1 // indirect
 	github.com/metacubex/gopacket v1.1.20-0.20230608035415-7e2f98a3e759 // indirect
-	github.com/metacubex/gvisor v0.0.0-20250919004547-6122b699a301 // indirect
+	github.com/metacubex/gvisor v0.0.0-20251227095601-261ec1326fe8 // indirect
 	github.com/metacubex/quic-go v0.57.1-0.20251217071004-e89f497a2e72 // indirect
 	github.com/metacubex/sing-quic v0.0.0-20251217080445-b15217cb57f3 // indirect
 	github.com/metacubex/sing-shadowsocks v0.2.12 // indirect
 	github.com/metacubex/sing-shadowsocks2 v0.2.7 // indirect
-	github.com/metacubex/sing-tun v0.4.10 // indirect
+	github.com/metacubex/sing-tun v0.4.11 // indirect
 	github.com/metacubex/sing-vmess v0.2.4 // indirect
 	github.com/metacubex/sing-wireguard v0.0.0-20250503063753-2dc62acc626f // indirect
 	github.com/moby/term v0.5.0 // indirect
