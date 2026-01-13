@@ -137,12 +137,14 @@ github.com/metacubex/quic-go v0.53.1-0.20250628094454-fda5262d1d9c/go.mod h1:eWl
 github.com/metacubex/quic-go v0.55.1-0.20251024060151-bd465f127128/go.mod h1:1lktQFtCD17FZliVypbrDHwbsFSsmz2xz2TRXydvB5c=
 github.com/metacubex/quic-go v0.55.1-0.20251203073212-6940cac967c2/go.mod h1:1lktQFtCD17FZliVypbrDHwbsFSsmz2xz2TRXydvB5c=
 github.com/metacubex/quic-go v0.57.1-0.20251217071004-e89f497a2e72/go.mod h1:N071X2oW2+kIhLlHW3mfcD2QP+zWu2bEs1EEAm66bvI=
+github.com/metacubex/quic-go v0.59.1-0.20260112033758-aa29579f2001/go.mod h1:oNzMrmylS897M3zSMuapIdwSwfq6F2qW01Z3NhVRJhk=
 github.com/metacubex/sing-quic v0.0.0-20231130141855-0022295e524b h1:7XXoEePvxfkQN9b2wB8UXU3uzb9uL8syEFF7A9VAKKQ=
 github.com/metacubex/sing-quic v0.0.0-20231130141855-0022295e524b/go.mod h1:Gu5/zqZDd5G1AUtoV2yjAPWOEy7zwbU2DBUjdxJh0Kw=
 github.com/metacubex/sing-quic v0.0.0-20250523120938-f1a248e5ec7f/go.mod h1:JPTpf7fpnojsSuwRJExhSZSy63pVbp3VM39+zj+sAJM=
 github.com/metacubex/sing-quic v0.0.0-20250628100430-24f13f1e846e/go.mod h1:B60FxaPHjR1SeQB0IiLrgwgvKsaoASfOWdiqhLjmMGA=
 github.com/metacubex/sing-quic v0.0.0-20251004051927-c45ee18473bb/go.mod h1:JK4+PYUKps6pnlicKjsSUAjAcvIUjhorIjdNZGg930M=
 github.com/metacubex/sing-quic v0.0.0-20251217080445-b15217cb57f3/go.mod h1:fAyoc/8IFK1yJp8meJvPNyGk7ZnKG1vmNaTwYx6NHA4=
+github.com/metacubex/sing-quic v0.0.0-20260112044712-65d17608159e/go.mod h1:+lgKTd52xAarGtqugALISShyw4KxnoEpYe2u0zJh26w=
 github.com/metacubex/sing-shadowsocks v0.2.5 h1:O2RRSHlKGEpAVG/OHJQxyHqDy8uvvdCW/oW2TDBOIhc=
 github.com/metacubex/sing-shadowsocks v0.2.5/go.mod h1:Xz2uW9BEYGEoA8B4XEpoxt7ERHClFCwsMAvWaruoyMo=
 github.com/metacubex/sing-shadowsocks v0.2.11-0.20250531133822-e545de386d4c/go.mod h1:MtRM0ZZjR0kaDOzy9zWSt6/4/UlrnsNBq+1FNAF4vBk=
