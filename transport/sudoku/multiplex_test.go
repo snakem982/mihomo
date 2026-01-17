@@ -99,7 +99,7 @@ func TestUserHash_StableAcrossTableRotation(t *testing.T) {
 			if h == "" {
 				t.Fatalf("empty user hash")
 			}
-			if len(h) != 14 {
+			if len(h) != 16 {
 				t.Fatalf("unexpected user hash length: %d", len(h))
 			}
 			unique[h] = struct{}{}
