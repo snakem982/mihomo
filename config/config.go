@@ -169,6 +169,7 @@ type DNS struct {
 	FakeIPTTL             int
 	NameServerPolicy      []dns.Policy
 	ProxyServerNameserver []dns.NameServer
+	ProxyServerPolicy     []dns.Policy
 	DirectNameServer      []dns.NameServer
 	DirectFollowPolicy    bool
 }
@@ -240,6 +241,7 @@ type RawDNS struct {
 	CacheMaxSize                 int                                 `yaml:"cache-max-size" json:"cache-max-size"`
 	NameServerPolicy             *orderedmap.OrderedMap[string, any] `yaml:"nameserver-policy" json:"nameserver-policy"`
 	ProxyServerNameserver        []string                            `yaml:"proxy-server-nameserver" json:"proxy-server-nameserver"`
+	ProxyServerNameserverPolicy  *orderedmap.OrderedMap[string, any] `yaml:"proxy-server-nameserver-policy" json:"proxy-server-nameserver-policy"`
 	DirectNameServer             []string                            `yaml:"direct-nameserver" json:"direct-nameserver"`
 	DirectNameServerFollowPolicy bool                                `yaml:"direct-nameserver-follow-policy" json:"direct-nameserver-follow-policy"`
 }
@@ -278,35 +280,36 @@ type RawTun struct {
 	GSO        bool   `yaml:"gso" json:"gso,omitempty"`
 	GSOMaxSize uint32 `yaml:"gso-max-size" json:"gso-max-size,omitempty"`
 	//Inet4Address           []netip.Prefix `yaml:"inet4-address" json:"inet4-address,omitempty"`
-	Inet6Address           []netip.Prefix `yaml:"inet6-address" json:"inet6-address,omitempty"`
-	IPRoute2TableIndex     int            `yaml:"iproute2-table-index" json:"iproute2-table-index,omitempty"`
-	IPRoute2RuleIndex      int            `yaml:"iproute2-rule-index" json:"iproute2-rule-index,omitempty"`
-	AutoRedirect           bool           `yaml:"auto-redirect" json:"auto-redirect,omitempty"`
-	AutoRedirectInputMark  uint32         `yaml:"auto-redirect-input-mark" json:"auto-redirect-input-mark,omitempty"`
-	AutoRedirectOutputMark uint32         `yaml:"auto-redirect-output-mark" json:"auto-redirect-output-mark,omitempty"`
-	LoopbackAddress        []netip.Addr   `yaml:"loopback-address" json:"loopback-address,omitempty"`
-	StrictRoute            bool           `yaml:"strict-route" json:"strict-route,omitempty"`
-	RouteAddress           []netip.Prefix `yaml:"route-address" json:"route-address,omitempty"`
-	RouteAddressSet        []string       `yaml:"route-address-set" json:"route-address-set,omitempty"`
-	RouteExcludeAddress    []netip.Prefix `yaml:"route-exclude-address" json:"route-exclude-address,omitempty"`
-	RouteExcludeAddressSet []string       `yaml:"route-exclude-address-set" json:"route-exclude-address-set,omitempty"`
-	IncludeInterface       []string       `yaml:"include-interface" json:"include-interface,omitempty"`
-	ExcludeInterface       []string       `yaml:"exclude-interface" json:"exclude-interface,omitempty"`
-	IncludeUID             []uint32       `yaml:"include-uid" json:"include-uid,omitempty"`
-	IncludeUIDRange        []string       `yaml:"include-uid-range" json:"include-uid-range,omitempty"`
-	ExcludeUID             []uint32       `yaml:"exclude-uid" json:"exclude-uid,omitempty"`
-	ExcludeUIDRange        []string       `yaml:"exclude-uid-range" json:"exclude-uid-range,omitempty"`
-	ExcludeSrcPort         []uint16       `yaml:"exclude-src-port" json:"exclude-src-port,omitempty"`
-	ExcludeSrcPortRange    []string       `yaml:"exclude-src-port-range" json:"exclude-src-port-range,omitempty"`
-	ExcludeDstPort         []uint16       `yaml:"exclude-dst-port" json:"exclude-dst-port,omitempty"`
-	ExcludeDstPortRange    []string       `yaml:"exclude-dst-port-range" json:"exclude-dst-port-range,omitempty"`
-	IncludeAndroidUser     []int          `yaml:"include-android-user" json:"include-android-user,omitempty"`
-	IncludePackage         []string       `yaml:"include-package" json:"include-package,omitempty"`
-	ExcludePackage         []string       `yaml:"exclude-package" json:"exclude-package,omitempty"`
-	EndpointIndependentNat bool           `yaml:"endpoint-independent-nat" json:"endpoint-independent-nat,omitempty"`
-	UDPTimeout             int64          `yaml:"udp-timeout" json:"udp-timeout,omitempty"`
-	DisableICMPForwarding  bool           `yaml:"disable-icmp-forwarding" json:"disable-icmp-forwarding,omitempty"`
-	FileDescriptor         int            `yaml:"file-descriptor" json:"file-descriptor"`
+	Inet6Address                          []netip.Prefix `yaml:"inet6-address" json:"inet6-address,omitempty"`
+	IPRoute2TableIndex                    int            `yaml:"iproute2-table-index" json:"iproute2-table-index,omitempty"`
+	IPRoute2RuleIndex                     int            `yaml:"iproute2-rule-index" json:"iproute2-rule-index,omitempty"`
+	AutoRedirect                          bool           `yaml:"auto-redirect" json:"auto-redirect,omitempty"`
+	AutoRedirectInputMark                 uint32         `yaml:"auto-redirect-input-mark" json:"auto-redirect-input-mark,omitempty"`
+	AutoRedirectOutputMark                uint32         `yaml:"auto-redirect-output-mark" json:"auto-redirect-output-mark,omitempty"`
+	AutoRedirectIPRoute2FallbackRuleIndex int            `yaml:"auto-redirect-iproute2-fallback-rule-index" json:"auto-redirect-iproute2-fallback-rule-index,omitempty"`
+	LoopbackAddress                       []netip.Addr   `yaml:"loopback-address" json:"loopback-address,omitempty"`
+	StrictRoute                           bool           `yaml:"strict-route" json:"strict-route,omitempty"`
+	RouteAddress                          []netip.Prefix `yaml:"route-address" json:"route-address,omitempty"`
+	RouteAddressSet                       []string       `yaml:"route-address-set" json:"route-address-set,omitempty"`
+	RouteExcludeAddress                   []netip.Prefix `yaml:"route-exclude-address" json:"route-exclude-address,omitempty"`
+	RouteExcludeAddressSet                []string       `yaml:"route-exclude-address-set" json:"route-exclude-address-set,omitempty"`
+	IncludeInterface                      []string       `yaml:"include-interface" json:"include-interface,omitempty"`
+	ExcludeInterface                      []string       `yaml:"exclude-interface" json:"exclude-interface,omitempty"`
+	IncludeUID                            []uint32       `yaml:"include-uid" json:"include-uid,omitempty"`
+	IncludeUIDRange                       []string       `yaml:"include-uid-range" json:"include-uid-range,omitempty"`
+	ExcludeUID                            []uint32       `yaml:"exclude-uid" json:"exclude-uid,omitempty"`
+	ExcludeUIDRange                       []string       `yaml:"exclude-uid-range" json:"exclude-uid-range,omitempty"`
+	ExcludeSrcPort                        []uint16       `yaml:"exclude-src-port" json:"exclude-src-port,omitempty"`
+	ExcludeSrcPortRange                   []string       `yaml:"exclude-src-port-range" json:"exclude-src-port-range,omitempty"`
+	ExcludeDstPort                        []uint16       `yaml:"exclude-dst-port" json:"exclude-dst-port,omitempty"`
+	ExcludeDstPortRange                   []string       `yaml:"exclude-dst-port-range" json:"exclude-dst-port-range,omitempty"`
+	IncludeAndroidUser                    []int          `yaml:"include-android-user" json:"include-android-user,omitempty"`
+	IncludePackage                        []string       `yaml:"include-package" json:"include-package,omitempty"`
+	ExcludePackage                        []string       `yaml:"exclude-package" json:"exclude-package,omitempty"`
+	EndpointIndependentNat                bool           `yaml:"endpoint-independent-nat" json:"endpoint-independent-nat,omitempty"`
+	UDPTimeout                            int64          `yaml:"udp-timeout" json:"udp-timeout,omitempty"`
+	DisableICMPForwarding                 bool           `yaml:"disable-icmp-forwarding" json:"disable-icmp-forwarding,omitempty"`
+	FileDescriptor                        int            `yaml:"file-descriptor" json:"file-descriptor"`
 
 	Inet4RouteAddress        []netip.Prefix `yaml:"inet4-route-address" json:"inet4-route-address,omitempty"`
 	Inet6RouteAddress        []netip.Prefix `yaml:"inet6-route-address" json:"inet6-route-address,omitempty"`
@@ -968,6 +971,12 @@ func parseProxies(cfg *RawConfig) (proxies map[string]C.Proxy, providersMap map[
 		)
 		proxies["GLOBAL"] = adapter.NewProxy(global)
 	}
+
+	// validate dialer-proxy references
+	if err := validateDialerProxies(proxies); err != nil {
+		return nil, nil, err
+	}
+
 	return proxies, providersMap, nil
 }
 
@@ -1409,6 +1418,13 @@ func parseDNS(rawCfg *RawConfig, ruleProviders map[string]P.RuleProvider) (*DNS,
 		return nil, err
 	}
 
+	if dnsCfg.ProxyServerPolicy, err = parseNameServerPolicy(cfg.ProxyServerNameserverPolicy, ruleProviders, false, cfg.PreferH3); err != nil {
+		return nil, err
+	}
+	if len(dnsCfg.ProxyServerPolicy) != 0 && len(dnsCfg.ProxyServerNameserver) == 0 {
+		return nil, errors.New("disallow empty `proxy-server-nameserver` when `proxy-server-nameserver-policy` is set")
+	}
+
 	if dnsCfg.DirectNameServer, err = parseNameServer(cfg.DirectNameServer, false, cfg.PreferH3); err != nil {
 		return nil, err
 	}
@@ -1646,39 +1662,40 @@ func parseTun(rawTun RawTun, dns *DNS, general *General) error {
 		AutoRoute:           rawTun.AutoRoute,
 		AutoDetectInterface: rawTun.AutoDetectInterface,
 
-		MTU:                    rawTun.MTU,
-		GSO:                    rawTun.GSO,
-		GSOMaxSize:             rawTun.GSOMaxSize,
-		Inet4Address:           []netip.Prefix{tunAddressPrefix},
-		Inet6Address:           rawTun.Inet6Address,
-		IPRoute2TableIndex:     rawTun.IPRoute2TableIndex,
-		IPRoute2RuleIndex:      rawTun.IPRoute2RuleIndex,
-		AutoRedirect:           rawTun.AutoRedirect,
-		AutoRedirectInputMark:  rawTun.AutoRedirectInputMark,
-		AutoRedirectOutputMark: rawTun.AutoRedirectOutputMark,
-		LoopbackAddress:        rawTun.LoopbackAddress,
-		StrictRoute:            rawTun.StrictRoute,
-		RouteAddress:           rawTun.RouteAddress,
-		RouteAddressSet:        rawTun.RouteAddressSet,
-		RouteExcludeAddress:    rawTun.RouteExcludeAddress,
-		RouteExcludeAddressSet: rawTun.RouteExcludeAddressSet,
-		IncludeInterface:       rawTun.IncludeInterface,
-		ExcludeInterface:       rawTun.ExcludeInterface,
-		IncludeUID:             rawTun.IncludeUID,
-		IncludeUIDRange:        rawTun.IncludeUIDRange,
-		ExcludeUID:             rawTun.ExcludeUID,
-		ExcludeUIDRange:        rawTun.ExcludeUIDRange,
-		ExcludeSrcPort:         rawTun.ExcludeSrcPort,
-		ExcludeSrcPortRange:    rawTun.ExcludeSrcPortRange,
-		ExcludeDstPort:         rawTun.ExcludeDstPort,
-		ExcludeDstPortRange:    rawTun.ExcludeDstPortRange,
-		IncludeAndroidUser:     rawTun.IncludeAndroidUser,
-		IncludePackage:         rawTun.IncludePackage,
-		ExcludePackage:         rawTun.ExcludePackage,
-		EndpointIndependentNat: rawTun.EndpointIndependentNat,
-		UDPTimeout:             rawTun.UDPTimeout,
-		DisableICMPForwarding:  rawTun.DisableICMPForwarding,
-		FileDescriptor:         rawTun.FileDescriptor,
+		MTU:                                   rawTun.MTU,
+		GSO:                                   rawTun.GSO,
+		GSOMaxSize:                            rawTun.GSOMaxSize,
+		Inet4Address:                          []netip.Prefix{tunAddressPrefix},
+		Inet6Address:                          rawTun.Inet6Address,
+		IPRoute2TableIndex:                    rawTun.IPRoute2TableIndex,
+		IPRoute2RuleIndex:                     rawTun.IPRoute2RuleIndex,
+		AutoRedirect:                          rawTun.AutoRedirect,
+		AutoRedirectInputMark:                 rawTun.AutoRedirectInputMark,
+		AutoRedirectOutputMark:                rawTun.AutoRedirectOutputMark,
+		AutoRedirectIPRoute2FallbackRuleIndex: rawTun.AutoRedirectIPRoute2FallbackRuleIndex,
+		LoopbackAddress:                       rawTun.LoopbackAddress,
+		StrictRoute:                           rawTun.StrictRoute,
+		RouteAddress:                          rawTun.RouteAddress,
+		RouteAddressSet:                       rawTun.RouteAddressSet,
+		RouteExcludeAddress:                   rawTun.RouteExcludeAddress,
+		RouteExcludeAddressSet:                rawTun.RouteExcludeAddressSet,
+		IncludeInterface:                      rawTun.IncludeInterface,
+		ExcludeInterface:                      rawTun.ExcludeInterface,
+		IncludeUID:                            rawTun.IncludeUID,
+		IncludeUIDRange:                       rawTun.IncludeUIDRange,
+		ExcludeUID:                            rawTun.ExcludeUID,
+		ExcludeUIDRange:                       rawTun.ExcludeUIDRange,
+		ExcludeSrcPort:                        rawTun.ExcludeSrcPort,
+		ExcludeSrcPortRange:                   rawTun.ExcludeSrcPortRange,
+		ExcludeDstPort:                        rawTun.ExcludeDstPort,
+		ExcludeDstPortRange:                   rawTun.ExcludeDstPortRange,
+		IncludeAndroidUser:                    rawTun.IncludeAndroidUser,
+		IncludePackage:                        rawTun.IncludePackage,
+		ExcludePackage:                        rawTun.ExcludePackage,
+		EndpointIndependentNat:                rawTun.EndpointIndependentNat,
+		UDPTimeout:                            rawTun.UDPTimeout,
+		DisableICMPForwarding:                 rawTun.DisableICMPForwarding,
+		FileDescriptor:                        rawTun.FileDescriptor,
 
 		Inet4RouteAddress:        rawTun.Inet4RouteAddress,
 		Inet6RouteAddress:        rawTun.Inet6RouteAddress,
