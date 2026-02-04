@@ -63,8 +63,6 @@ func handleVShareLink(names map[string]int, url *url.URL, scheme string, proxy m
 	fakeType := strings.ToLower(query.Get("headerType"))
 	if fakeType == "http" {
 		network = "http"
-	} else if network == "http" {
-		network = "h2"
 	}
 	proxy["network"] = network
 	switch network {
@@ -92,9 +90,9 @@ func handleVShareLink(names map[string]int, url *url.URL, scheme string, proxy m
 	case "http":
 		headers := make(map[string]any)
 		h2Opts := make(map[string]any)
-		h2Opts["path"] = []string{"/"}
+		h2Opts["path"] = "/"
 		if path := query.Get("path"); path != "" {
-			h2Opts["path"] = []string{path}
+			h2Opts["path"] = path
 		}
 		if host := query.Get("host"); host != "" {
 			h2Opts["host"] = []string{host}
