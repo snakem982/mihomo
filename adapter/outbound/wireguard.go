@@ -77,8 +77,8 @@ type WireGuardOption struct {
 }
 
 type WireGuardPeerOption struct {
-	Server       string   `proxy:"server"`
-	Port         int      `proxy:"port"`
+	Server       string   `proxy:"server,omitempty"`
+	Port         int      `proxy:"port,omitempty"`
 	PublicKey    string   `proxy:"public-key,omitempty"`
 	PreSharedKey string   `proxy:"pre-shared-key,omitempty"`
 	Reserved     []uint8  `proxy:"reserved,omitempty"`
@@ -178,7 +178,7 @@ func NewWireGuard(option WireGuardOption) (*WireGuard, error) {
 		},
 	}
 	outbound.dialer = option.NewDialer(outbound.DialOptions())
-	singDialer := proxydialer.NewSlowDownSingDialer(proxydialer.NewSingDialer(outbound.dialer), slowdown.New())
+	singDialer := proxydialer.NewSingDialer(proxydialer.NewSlowDownDialer(outbound.dialer, slowdown.New()))
 
 	var reserved [3]uint8
 	if len(option.Reserved) > 0 {

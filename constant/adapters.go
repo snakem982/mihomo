@@ -47,6 +47,7 @@ const (
 	AnyTLS
 	Sudoku
 	Masque
+	TrustTunnel
 )
 
 const (
@@ -218,6 +219,8 @@ func (at AdapterType) String() string {
 		return "Sudoku"
 	case Masque:
 		return "Masque"
+	case TrustTunnel:
+		return "TrustTunnel"
 	case Relay:
 		return "Relay"
 	case Selector:
