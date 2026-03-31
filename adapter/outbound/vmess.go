@@ -34,8 +34,7 @@ type Vmess struct {
 	option *VmessOption
 
 	// for gun mux
-	gunConfig    *gun.Config
-	gunTransport *gun.TransportWrap
+	gunTransport *gun.Transport
 
 	realityConfig *tlsC.RealityConfig
 	echConfig     *ech.Config
@@ -86,6 +85,7 @@ type HTTP2Options struct {
 type GrpcOptions struct {
 	GrpcServiceName string `proxy:"grpc-service-name,omitempty"`
 	GrpcUserAgent   string `proxy:"grpc-user-agent,omitempty"`
+	PingInterval    int    `proxy:"ping-interval,omitempty"`
 }
 
 type WSOptions struct {
@@ -290,15 +290,18 @@ func (v *Vmess) streamConnContext(ctx context.Context, c net.Conn, metadata *C.M
 	return
 }
 
+func (v *Vmess) dialContext(ctx context.Context) (c net.Conn, err error) {
+	switch v.option.Network {
+	case "grpc": // gun transport
+		return v.gunTransport.Dial()
+	default:
+	}
+	return v.dialer.DialContext(ctx, "tcp", v.addr)
+}
+
 // DialContext implements C.ProxyAdapter
 func (v *Vmess) DialContext(ctx context.Context, metadata *C.Metadata) (_ C.Conn, err error) {
-	var c net.Conn
-	// gun transport
-	if v.gunTransport != nil {
-		c, err = gun.StreamGunWithTransport(v.gunTransport, v.gunConfig)
-	} else {
-		c, err = v.dialer.DialContext(ctx, "tcp", v.addr)
-	}
+	c, err := v.dialContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("%s connect error: %s", v.addr, err.Error())
 	}
@@ -307,6 +310,9 @@ func (v *Vmess) DialContext(ctx context.Context, metadata *C.Metadata) (_ C.Conn
 	}(c)
 
 	c, err = v.StreamConnContext(ctx, c, metadata)
+	if err != nil {
+		return nil, fmt.Errorf("%s connect error: %s", v.addr, err.Error())
+	}
 	return NewConn(c, v), err
 }
 
@@ -315,13 +321,8 @@ func (v *Vmess) ListenPacketContext(ctx context.Context, metadata *C.Metadata) (
 	if err = v.ResolveUDP(ctx, metadata); err != nil {
 		return nil, err
 	}
-	var c net.Conn
-	// gun transport
-	if v.gunTransport != nil {
-		c, err = gun.StreamGunWithTransport(v.gunTransport, v.gunConfig)
-	} else {
-		c, err = v.dialer.DialContext(ctx, "tcp", v.addr)
-	}
+
+	c, err := v.dialContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("%s connect error: %s", v.addr, err.Error())
 	}
@@ -331,9 +332,13 @@ func (v *Vmess) ListenPacketContext(ctx context.Context, metadata *C.Metadata) (
 
 	c, err = v.StreamConnContext(ctx, c, metadata)
 	if err != nil {
-		return nil, fmt.Errorf("new vmess client error: %v", err)
+		return nil, fmt.Errorf("%s connect error: %s", v.addr, err.Error())
 	}
-	return v.ListenPacketOnStreamConn(ctx, c, metadata)
+
+	if pc, ok := c.(net.PacketConn); ok {
+		return newPacketConn(N.NewThreadSafePacketConn(pc), v), nil
+	}
+	return newPacketConn(&vmessPacketConn{Conn: c, rAddr: metadata.UDPAddr()}, v), nil
 }
 
 // ProxyInfo implements C.ProxyAdapter
@@ -349,18 +354,6 @@ func (v *Vmess) Close() error {
 		return v.gunTransport.Close()
 	}
 	return nil
-}
-
-// ListenPacketOnStreamConn implements C.ProxyAdapter
-func (v *Vmess) ListenPacketOnStreamConn(ctx context.Context, c net.Conn, metadata *C.Metadata) (_ C.PacketConn, err error) {
-	if err = v.ResolveUDP(ctx, metadata); err != nil {
-		return nil, err
-	}
-
-	if pc, ok := c.(net.PacketConn); ok {
-		return newPacketConn(N.NewThreadSafePacketConn(pc), v), nil
-	}
-	return newPacketConn(&vmessPacketConn{Conn: c, rAddr: metadata.UDPAddr()}, v), nil
 }
 
 // SupportUOT implements C.ProxyAdapter
@@ -437,9 +430,10 @@ func NewVmess(option VmessOption) (*Vmess, error) {
 		}
 
 		gunConfig := &gun.Config{
-			ServiceName: option.GrpcOpts.GrpcServiceName,
-			UserAgent:   option.GrpcOpts.GrpcUserAgent,
-			Host:        option.ServerName,
+			ServiceName:  option.GrpcOpts.GrpcServiceName,
+			UserAgent:    option.GrpcOpts.GrpcUserAgent,
+			Host:         option.ServerName,
+			PingInterval: option.GrpcOpts.PingInterval,
 		}
 		if option.ServerName == "" {
 			gunConfig.Host = v.addr
@@ -463,9 +457,7 @@ func NewVmess(option VmessOption) (*Vmess, error) {
 			}
 		}
 
-		v.gunConfig = gunConfig
-
-		v.gunTransport = gun.NewHTTP2Client(dialFn, tlsConfig)
+		v.gunTransport = gun.NewTransport(dialFn, tlsConfig, gunConfig)
 	}
 
 	return v, nil

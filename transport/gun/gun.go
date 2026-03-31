@@ -4,7 +4,6 @@
 package gun
 
 import (
-	"bufio"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -17,13 +16,13 @@ import (
 	"time"
 
 	"github.com/metacubex/mihomo/common/buf"
+	"github.com/metacubex/mihomo/common/httputils"
 	"github.com/metacubex/mihomo/common/pool"
 	tlsC "github.com/metacubex/mihomo/component/tls"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/transport/vmess"
 
 	"github.com/metacubex/http"
-	"github.com/metacubex/http/httptrace"
 	"github.com/metacubex/tls"
 )
 
@@ -33,22 +32,21 @@ var (
 )
 
 var defaultHeader = http.Header{
-	"content-type": []string{"application/grpc"},
-	"user-agent":   []string{"grpc-go/1.36.0"},
+	"Content-Type": []string{"application/grpc"},
+	"User-Agent":   []string{"grpc-go/1.36.0"},
 }
 
 type DialFn = func(ctx context.Context, network, addr string) (net.Conn, error)
 
 type Conn struct {
-	initFn func() (io.ReadCloser, NetAddr, error)
+	initFn func(addr *httputils.NetAddr) (io.ReadCloser, error)
 	writer io.Writer // writer must not nil
 	closer io.Closer
-	NetAddr
+	httputils.NetAddr
 
 	initOnce sync.Once
 	initErr  error
 	reader   io.ReadCloser
-	br       *bufio.Reader
 	remain   int
 
 	closeMutex sync.Mutex
@@ -59,13 +57,14 @@ type Conn struct {
 }
 
 type Config struct {
-	ServiceName string
-	UserAgent   string
-	Host        string
+	ServiceName  string
+	UserAgent    string
+	Host         string
+	PingInterval int
 }
 
 func (g *Conn) initReader() {
-	reader, addr, err := g.initFn()
+	reader, err := g.initFn(&g.NetAddr)
 	if err != nil {
 		g.initErr = err
 		if closer, ok := g.writer.(io.Closer); ok {
@@ -73,7 +72,6 @@ func (g *Conn) initReader() {
 		}
 		return
 	}
-	g.NetAddr = addr
 
 	g.closeMutex.Lock()
 	defer g.closeMutex.Unlock()
@@ -84,7 +82,6 @@ func (g *Conn) initReader() {
 	}
 
 	g.reader = reader
-	g.br = bufio.NewReader(reader)
 }
 
 func (g *Conn) Init() error {
@@ -96,63 +93,53 @@ func (g *Conn) Read(b []byte) (n int, err error) {
 	if err = g.Init(); err != nil {
 		return
 	}
+	return g.read(b)
+}
 
+func (g *Conn) read(b []byte) (n int, err error) {
 	if g.remain > 0 {
 		size := g.remain
 		if len(b) < size {
 			size = len(b)
 		}
 
-		n, err = io.ReadFull(g.br, b[:size])
+		n, err = io.ReadFull(g.reader, b[:size])
 		g.remain -= n
 		return
 	}
 
 	// 0x00 grpclength(uint32) 0x0A uleb128 payload
-	_, err = g.br.Discard(6)
+	var discard [6]byte
+	_, err = io.ReadFull(g.reader, discard[:])
 	if err != nil {
 		return 0, err
 	}
 
-	protobufPayloadLen, err := binary.ReadUvarint(g.br)
+	protobufPayloadLen, err := ReadUVariant(g.reader)
 	if err != nil {
 		return 0, ErrInvalidLength
 	}
-
-	size := int(protobufPayloadLen)
-	if len(b) < size {
-		size = len(b)
-	}
-
-	n, err = io.ReadFull(g.br, b[:size])
-	if err != nil {
-		return
-	}
-
-	remain := int(protobufPayloadLen) - n
-	if remain > 0 {
-		g.remain = remain
-	}
-
-	return n, nil
+	g.remain = int(protobufPayloadLen)
+	return g.read(b)
 }
 
 func (g *Conn) Write(b []byte) (n int, err error) {
-	protobufHeader := [binary.MaxVarintLen64 + 1]byte{0x0A}
-	varuintSize := binary.PutUvarint(protobufHeader[1:], uint64(len(b)))
-	var grpcHeader [5]byte
-	grpcPayloadLen := uint32(varuintSize + 1 + len(b))
-	binary.BigEndian.PutUint32(grpcHeader[1:5], grpcPayloadLen)
+	dataLen := len(b)
+	varLen := UVarintLen(uint64(dataLen))
+	buf := pool.Get(5 + 1 + varLen + dataLen)
+	defer pool.Put(buf)
+	_ = buf[6] // bounds check hint to compiler
+	buf[0] = 0x00
+	binary.BigEndian.PutUint32(buf[1:5], uint32(1+varLen+dataLen))
+	buf[5] = 0x0A
+	binary.PutUvarint(buf[6:], uint64(dataLen))
+	copy(buf[6+varLen:], b)
 
-	buf := pool.GetBuffer()
-	defer pool.PutBuffer(buf)
-	buf.Write(grpcHeader[:])
-	buf.Write(protobufHeader[:varuintSize+1])
-	buf.Write(b)
-
-	_, err = g.writer.Write(buf.Bytes())
-	if err == io.ErrClosedPipe && g.initErr != nil {
-		err = g.initErr
+	_, err = g.writer.Write(buf)
+	if err == io.ErrClosedPipe {
+		if initErr := g.Init(); initErr != nil {
+			err = initErr
+		}
 	}
 
 	if flusher, ok := g.writer.(http.Flusher); ok {
@@ -174,8 +161,10 @@ func (g *Conn) WriteBuffer(buffer *buf.Buffer) error {
 	binary.PutUvarint(header[6:], uint64(dataLen))
 	_, err := g.writer.Write(buffer.Bytes())
 
-	if err == io.ErrClosedPipe && g.initErr != nil {
-		err = g.initErr
+	if err == io.ErrClosedPipe {
+		if initErr := g.Init(); initErr != nil {
+			err = initErr
+		}
 	}
 
 	if flusher, ok := g.writer.(http.Flusher); ok {
@@ -190,10 +179,6 @@ func (g *Conn) FrontHeadroom() int {
 }
 
 func (g *Conn) Close() error {
-	g.initOnce.Do(func() { // if initReader not called, it should not be run anymore
-		g.initErr = net.ErrClosed
-	})
-
 	g.closeMutex.Lock()
 	defer g.closeMutex.Unlock()
 	if g.closed {
@@ -203,14 +188,14 @@ func (g *Conn) Close() error {
 
 	var errorArr []error
 
-	if reader := g.reader; reader != nil {
-		if err := reader.Close(); err != nil {
+	if closer, ok := g.writer.(io.Closer); ok {
+		if err := closer.Close(); err != nil {
 			errorArr = append(errorArr, err)
 		}
 	}
 
-	if closer, ok := g.writer.(io.Closer); ok {
-		if err := closer.Close(); err != nil {
+	if reader := g.reader; reader != nil {
+		if err := reader.Close(); err != nil {
 			errorArr = append(errorArr, err)
 		}
 	}
@@ -246,7 +231,23 @@ func (g *Conn) SetDeadline(t time.Time) error {
 	return nil
 }
 
-func NewHTTP2Client(dialFn DialFn, tlsConfig *vmess.TLSConfig) *TransportWrap {
+type Transport struct {
+	transport *http.Http2Transport
+	cfg       *Config
+	ctx       context.Context
+	cancel    context.CancelFunc
+	closeOnce sync.Once
+}
+
+func (t *Transport) Close() error {
+	t.closeOnce.Do(func() {
+		t.cancel()
+		httputils.CloseTransport(t.transport)
+	})
+	return nil
+}
+
+func NewTransport(dialFn DialFn, tlsConfig *vmess.TLSConfig, gunCfg *Config) *Transport {
 	dialFunc := func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
 		ctx, cancel := context.WithTimeout(ctx, C.DefaultTLSTimeout)
 		defer cancel()
@@ -288,14 +289,16 @@ func NewHTTP2Client(dialFn DialFn, tlsConfig *vmess.TLSConfig) *TransportWrap {
 		DialTLSContext:     dialFunc,
 		AllowHTTP:          false,
 		DisableCompression: true,
+		ReadIdleTimeout:    time.Duration(gunCfg.PingInterval) * time.Second, // If zero, no health check is performed
 		PingTimeout:        0,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	wrap := &TransportWrap{
-		Http2Transport: transport,
-		ctx:            ctx,
-		cancel:         cancel,
+	wrap := &Transport{
+		transport: transport,
+		cfg:       gunCfg,
+		ctx:       ctx,
+		cancel:    cancel,
 	}
 	return wrap
 }
@@ -307,18 +310,18 @@ func ServiceNameToPath(serviceName string) string {
 	return "/" + serviceName + "/Tun"
 }
 
-func StreamGunWithTransport(transport *TransportWrap, cfg *Config) (net.Conn, error) {
+func (t *Transport) Dial() (net.Conn, error) {
 	serviceName := "GunService"
-	if cfg.ServiceName != "" {
-		serviceName = cfg.ServiceName
+	if t.cfg.ServiceName != "" {
+		serviceName = t.cfg.ServiceName
 	}
 	path := ServiceNameToPath(serviceName)
 
 	reader, writer := io.Pipe()
 
 	header := defaultHeader.Clone()
-	if cfg.UserAgent != "" {
-		header.Set("User-Agent", cfg.UserAgent)
+	if t.cfg.UserAgent != "" {
+		header.Set("User-Agent", t.cfg.UserAgent)
 	}
 
 	request := &http.Request{
@@ -326,48 +329,48 @@ func StreamGunWithTransport(transport *TransportWrap, cfg *Config) (net.Conn, er
 		Body:   reader,
 		URL: &url.URL{
 			Scheme: "https",
-			Host:   cfg.Host,
+			Host:   t.cfg.Host,
 			Path:   path,
 			// for unescape path
-			Opaque: "//" + cfg.Host + path,
+			Opaque: "//" + t.cfg.Host + path,
 		},
 		Proto:      "HTTP/2",
 		ProtoMajor: 2,
 		ProtoMinor: 0,
 		Header:     header,
 	}
-	request = request.WithContext(transport.ctx)
+	request = request.WithContext(t.ctx)
+	initStarted := make(chan struct{})
 
 	conn := &Conn{
-		initFn: func() (io.ReadCloser, NetAddr, error) {
-			nAddr := NetAddr{}
-			trace := &httptrace.ClientTrace{
-				GotConn: func(connInfo httptrace.GotConnInfo) {
-					nAddr.SetLocalAddr(connInfo.Conn.LocalAddr())
-					nAddr.SetRemoteAddr(connInfo.Conn.RemoteAddr())
-				},
-			}
-			request = request.WithContext(httptrace.WithClientTrace(request.Context(), trace))
-			response, err := transport.RoundTrip(request)
+		initFn: func(addr *httputils.NetAddr) (io.ReadCloser, error) {
+			close(initStarted)
+			request = request.WithContext(httputils.NewAddrContext(addr, request.Context()))
+			response, err := t.transport.RoundTrip(request)
 			if err != nil {
-				return nil, nAddr, err
+				return nil, err
 			}
-			return response.Body, nAddr, nil
+			return response.Body, nil
 		},
 		writer: writer,
 	}
 
 	go conn.Init()
+
+	// ensure conn.initOnce.Do has been called before return
+	// prevent the race caused by the return side immediately calling conn.Close
+	<-initStarted
+
 	return conn, nil
 }
 
-func StreamGunWithConn(conn net.Conn, tlsConfig *vmess.TLSConfig, cfg *Config) (net.Conn, error) {
+func StreamGunWithConn(conn net.Conn, tlsConfig *vmess.TLSConfig, gunCfg *Config) (net.Conn, error) {
 	dialFn := func(ctx context.Context, network, addr string) (net.Conn, error) {
 		return conn, nil
 	}
 
-	transport := NewHTTP2Client(dialFn, tlsConfig)
-	c, err := StreamGunWithTransport(transport, cfg)
+	transport := NewTransport(dialFn, tlsConfig, gunCfg)
+	c, err := transport.Dial()
 	if err != nil {
 		return nil, err
 	}
