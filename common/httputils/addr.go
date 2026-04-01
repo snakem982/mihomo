@@ -1,29 +1,14 @@
-package gun
+package httputils
 
 import (
 	"context"
 	"net"
-	"sync"
 
 	C "github.com/metacubex/mihomo/constant"
 
 	"github.com/metacubex/http"
+	"github.com/metacubex/http/httptrace"
 )
-
-type TransportWrap struct {
-	*http.Http2Transport
-	ctx       context.Context
-	cancel    context.CancelFunc
-	closeOnce sync.Once
-}
-
-func (tw *TransportWrap) Close() error {
-	tw.closeOnce.Do(func() {
-		tw.cancel()
-		CloseTransport(tw.Http2Transport)
-	})
-	return nil
-}
 
 type NetAddr struct {
 	remoteAddr net.Addr
@@ -38,7 +23,7 @@ func (addr NetAddr) LocalAddr() net.Addr {
 	return addr.localAddr
 }
 
-func (addr *NetAddr) SetAddrFromRequest(request *http.Request) {
+func SetAddrFromRequest(addr *NetAddr, request *http.Request) {
 	if request.RemoteAddr != "" {
 		metadata := C.Metadata{}
 		if err := metadata.SetRemoteAddress(request.RemoteAddr); err == nil {
@@ -50,10 +35,11 @@ func (addr *NetAddr) SetAddrFromRequest(request *http.Request) {
 	}
 }
 
-func (addr *NetAddr) SetRemoteAddr(remoteAddr net.Addr) {
-	addr.remoteAddr = remoteAddr
-}
-
-func (addr *NetAddr) SetLocalAddr(localAddr net.Addr) {
-	addr.localAddr = localAddr
+func NewAddrContext(addr *NetAddr, ctx context.Context) context.Context {
+	return httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		GotConn: func(connInfo httptrace.GotConnInfo) {
+			addr.localAddr = connInfo.Conn.LocalAddr()
+			addr.remoteAddr = connInfo.Conn.RemoteAddr()
+		},
+	})
 }

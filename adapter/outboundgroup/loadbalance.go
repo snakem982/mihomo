@@ -23,13 +23,10 @@ type strategyFn = func(proxies []C.Proxy, metadata *C.Metadata, touch bool) C.Pr
 
 type LoadBalance struct {
 	*GroupBase
-	disableUDP          bool
-	strategyFn          strategyFn
-	testUrl             string
-	expectedStatus      string
-	Hidden              bool
-	Icon                string
-	stickySessionsCache *lru.LruCache[uint64, int]
+	disableUDP     bool
+	strategyFn     strategyFn
+	testUrl        string
+	expectedStatus string
 }
 
 var errStrategy = errors.New("unsupported strategy")
@@ -185,13 +182,12 @@ func strategyConsistentHashing(url string) strategyFn {
 	}
 }
 
-func strategyStickySessions(url string, cacheRef **lru.LruCache[uint64, int]) strategyFn {
+func strategyStickySessions(url string) strategyFn {
 	ttl := time.Minute * 10
 	maxRetry := 5
 	lruCache := lru.New[uint64, int](
 		lru.WithAge[uint64, int](int64(ttl.Seconds())),
 		lru.WithSize[uint64, int](1000))
-	*cacheRef = lruCache
 	return func(proxies []C.Proxy, metadata *C.Metadata, touch bool) C.Proxy {
 		key := utils.MapHash(getKeyWithSrcAndDst(metadata))
 		length := len(proxies)
@@ -219,14 +215,6 @@ func strategyStickySessions(url string, cacheRef **lru.LruCache[uint64, int]) st
 	}
 }
 
-func (lb *LoadBalance) ClearStickySession(metadata *C.Metadata) {
-	if lb.stickySessionsCache == nil || metadata == nil {
-		return
-	}
-	key := utils.MapHash(getKeyWithSrcAndDst(metadata))
-	lb.stickySessionsCache.Delete(key)
-}
-
 // Unwrap implements C.ProxyAdapter
 func (lb *LoadBalance) Unwrap(metadata *C.Metadata, touch bool) C.Proxy {
 	proxies := lb.GetProxies(touch)
@@ -244,8 +232,8 @@ func (lb *LoadBalance) MarshalJSON() ([]byte, error) {
 		"all":            all,
 		"testUrl":        lb.testUrl,
 		"expectedStatus": lb.expectedStatus,
-		"hidden":         lb.Hidden,
-		"icon":           lb.Icon,
+		"hidden":         lb.Hidden(),
+		"icon":           lb.Icon(),
 	})
 }
 
@@ -263,14 +251,13 @@ func (lb *LoadBalance) Now() string {
 
 func NewLoadBalance(option *GroupCommonOption, providers []P.ProxyProvider, strategy string) (lb *LoadBalance, err error) {
 	var strategyFn strategyFn
-	var stickySessionsCache *lru.LruCache[uint64, int]
 	switch strategy {
 	case "consistent-hashing":
 		strategyFn = strategyConsistentHashing(option.URL)
 	case "round-robin":
 		strategyFn = strategyRoundRobin(option.URL)
 	case "sticky-sessions":
-		strategyFn = strategyStickySessions(option.URL, &stickySessionsCache)
+		strategyFn = strategyStickySessions(option.URL)
 	default:
 		return nil, fmt.Errorf("%w: %s", errStrategy, strategy)
 	}
@@ -278,6 +265,8 @@ func NewLoadBalance(option *GroupCommonOption, providers []P.ProxyProvider, stra
 		GroupBase: NewGroupBase(GroupBaseOption{
 			Name:           option.Name,
 			Type:           C.LoadBalance,
+			Hidden:         option.Hidden,
+			Icon:           option.Icon,
 			Filter:         option.Filter,
 			ExcludeFilter:  option.ExcludeFilter,
 			ExcludeType:    option.ExcludeType,
@@ -285,12 +274,9 @@ func NewLoadBalance(option *GroupCommonOption, providers []P.ProxyProvider, stra
 			MaxFailedTimes: option.MaxFailedTimes,
 			Providers:      providers,
 		}),
-		strategyFn:          strategyFn,
-		disableUDP:          option.DisableUDP,
-		testUrl:             option.URL,
-		expectedStatus:      option.ExpectedStatus,
-		Hidden:              option.Hidden,
-		Icon:                option.Icon,
-		stickySessionsCache: stickySessionsCache,
+		strategyFn:     strategyFn,
+		disableUDP:     option.DisableUDP,
+		testUrl:        option.URL,
+		expectedStatus: option.ExpectedStatus,
 	}, nil
 }

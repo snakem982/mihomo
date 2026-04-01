@@ -17,7 +17,7 @@ type SudokuOption struct {
 	AEADMethod             string                 `inbound:"aead-method,omitempty"`
 	PaddingMin             *int                   `inbound:"padding-min,omitempty"`
 	PaddingMax             *int                   `inbound:"padding-max,omitempty"`
-	TableType              string                 `inbound:"table-type,omitempty"` // "prefer_ascii" or "prefer_entropy"
+	TableType              string                 `inbound:"table-type,omitempty"` // "prefer_ascii", "prefer_entropy", or directional "up_ascii_down_entropy"/"up_entropy_down_ascii"
 	HandshakeTimeoutSecond *int                   `inbound:"handshake-timeout,omitempty"`
 	EnablePureDownlink     *bool                  `inbound:"enable-pure-downlink,omitempty"`
 	CustomTable            string                 `inbound:"custom-table,omitempty"` // optional custom byte layout, e.g. xpxvvpvv
@@ -35,7 +35,7 @@ type SudokuOption struct {
 type SudokuHTTPMaskOptions struct {
 	Disable  bool   `inbound:"disable,omitempty"`
 	Mode     string `inbound:"mode,omitempty"`
-	PathRoot string `inbound:"path_root,omitempty"`
+	PathRoot string `inbound:"path-root,omitempty"`
 }
 
 func (o SudokuOption) Equal(config C.InboundConfig) bool {
