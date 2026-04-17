@@ -140,6 +140,7 @@ github.com/metacubex/quic-go v0.57.1-0.20251217071004-e89f497a2e72/go.mod h1:N07
 github.com/metacubex/quic-go v0.59.1-0.20260112033758-aa29579f2001/go.mod h1:oNzMrmylS897M3zSMuapIdwSwfq6F2qW01Z3NhVRJhk=
 github.com/metacubex/quic-go v0.59.1-0.20260128071132-0f3233b973af/go.mod h1:oNzMrmylS897M3zSMuapIdwSwfq6F2qW01Z3NhVRJhk=
 github.com/metacubex/quic-go v0.59.1-0.20260213014310-4df8f0de5b56/go.mod h1:oNzMrmylS897M3zSMuapIdwSwfq6F2qW01Z3NhVRJhk=
+github.com/metacubex/quic-go v0.59.1-0.20260413153657-53bb22f2c306/go.mod h1:oNzMrmylS897M3zSMuapIdwSwfq6F2qW01Z3NhVRJhk=
 github.com/metacubex/sing-quic v0.0.0-20231130141855-0022295e524b h1:7XXoEePvxfkQN9b2wB8UXU3uzb9uL8syEFF7A9VAKKQ=
 github.com/metacubex/sing-quic v0.0.0-20231130141855-0022295e524b/go.mod h1:Gu5/zqZDd5G1AUtoV2yjAPWOEy7zwbU2DBUjdxJh0Kw=
 github.com/metacubex/sing-quic v0.0.0-20250523120938-f1a248e5ec7f/go.mod h1:JPTpf7fpnojsSuwRJExhSZSy63pVbp3VM39+zj+sAJM=
@@ -147,6 +148,7 @@ github.com/metacubex/sing-quic v0.0.0-20250628100430-24f13f1e846e/go.mod h1:B60F
 github.com/metacubex/sing-quic v0.0.0-20251004051927-c45ee18473bb/go.mod h1:JK4+PYUKps6pnlicKjsSUAjAcvIUjhorIjdNZGg930M=
 github.com/metacubex/sing-quic v0.0.0-20251217080445-b15217cb57f3/go.mod h1:fAyoc/8IFK1yJp8meJvPNyGk7ZnKG1vmNaTwYx6NHA4=
 github.com/metacubex/sing-quic v0.0.0-20260112044712-65d17608159e/go.mod h1:+lgKTd52xAarGtqugALISShyw4KxnoEpYe2u0zJh26w=
+github.com/metacubex/sing-quic v0.0.0-20260414034501-3ea3410d197a/go.mod h1:6ayFGfzzBE85csgQkM3gf4neFq6s0losHlPRSxY+nuk=
 github.com/metacubex/sing-shadowsocks v0.2.5 h1:O2RRSHlKGEpAVG/OHJQxyHqDy8uvvdCW/oW2TDBOIhc=
 github.com/metacubex/sing-shadowsocks v0.2.5/go.mod h1:Xz2uW9BEYGEoA8B4XEpoxt7ERHClFCwsMAvWaruoyMo=
 github.com/metacubex/sing-shadowsocks v0.2.11-0.20250531133822-e545de386d4c/go.mod h1:MtRM0ZZjR0kaDOzy9zWSt6/4/UlrnsNBq+1FNAF4vBk=
@@ -168,6 +170,7 @@ github.com/metacubex/sing-tun v0.4.11/go.mod h1:L/TjQY5JEGy8nvsuYmy/XgMFMCPiF0+A
 github.com/metacubex/sing-tun v0.4.12/go.mod h1:L/TjQY5JEGy8nvsuYmy/XgMFMCPiF0+AWSFCYfS6r9w=
 github.com/metacubex/sing-tun v0.4.15/go.mod h1:L/TjQY5JEGy8nvsuYmy/XgMFMCPiF0+AWSFCYfS6r9w=
 github.com/metacubex/sing-tun v0.4.16/go.mod h1:L/TjQY5JEGy8nvsuYmy/XgMFMCPiF0+AWSFCYfS6r9w=
+github.com/metacubex/sing-tun v0.4.17/go.mod h1:L/TjQY5JEGy8nvsuYmy/XgMFMCPiF0+AWSFCYfS6r9w=
 github.com/metacubex/sing-vmess v0.1.9-0.20230921005247-a0488d7dac74 h1:FtupiyFkaVjFvRa7B/uDtRWg5BNsoyPC9MTev3sDasY=
 github.com/metacubex/sing-vmess v0.1.9-0.20230921005247-a0488d7dac74/go.mod h1:8EWBZpc+qNvf5gmvjAtMHK1/DpcWqzfcBL842K00BsM=
 github.com/metacubex/sing-vmess v0.2.2/go.mod h1:CVDNcdSLVYFgTHQlubr88d8CdqupAUDqLjROos+H9xk=

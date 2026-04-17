@@ -3,12 +3,12 @@ package convert
 import (
 	"encoding/json"
 	"fmt"
-	"gopkg.in/yaml.v3"
-	"net/url"
 	"reflect"
 	"strconv"
 	"strings"
 	"unicode"
+
+	"gopkg.in/yaml.v3"
 )
 
 // ConvertsSingBox convert SingBox subscribe proxies data to mihomo proxies config
@@ -180,22 +180,23 @@ func ConvertsSingBox(buf []byte) ([]map[string]any, error) {
 				ss["udp-over-tcp-version"] = outbound.UdpOverTcp.Version
 			}
 
-			plugin := outbound.Plugin
-			pluginInfo, _ := url.ParseQuery(strings.ReplaceAll(outbound.PluginOpts, ";", "&"))
-			switch plugin {
-			case "v2ray-plugin":
-				ss["plugin"] = "v2ray-plugin"
-				ss["plugin-opts"] = map[string]any{
-					"mode": pluginInfo.Get("mode"),
-					"host": pluginInfo.Get("host"),
-					"path": pluginInfo.Get("path"),
-					"tls":  strings.Contains(outbound.PluginOpts, "tls"),
-				}
-			case "obfs":
-				ss["plugin"] = "obfs"
-				ss["plugin-opts"] = map[string]any{
-					"mode": pluginInfo.Get("obfs"),
-					"host": pluginInfo.Get("obfs-host"),
+			if outbound.Plugin != "" && outbound.PluginOpts != nil {
+				switch outbound.Plugin {
+				case "v2ray-plugin":
+					ss["plugin"] = "v2ray-plugin"
+					ss["plugin-opts"] = map[string]any{
+						"mode": outbound.PluginOpts.Mode,
+						"host": outbound.PluginOpts.Host,
+						"path": outbound.PluginOpts.Path,
+						"tls":  outbound.PluginOpts.Tls,
+						"mux":  outbound.PluginOpts.Mux == "1",
+					}
+				case "obfs-local":
+					ss["plugin"] = "obfs"
+					ss["plugin-opts"] = map[string]any{
+						"mode": outbound.PluginOpts.Mode,
+						"host": outbound.PluginOpts.Host,
+					}
 				}
 			}
 
@@ -251,7 +252,7 @@ type SingBoxOption struct {
 	URL                      string                    `json:"url,omitempty"`
 	Network                  string                    `json:"network,omitempty"`
 	Plugin                   string                    `json:"plugin,omitempty"`
-	PluginOpts               string                    `json:"plugin_opts,omitempty"`
+	PluginOpts               *SingPluginOpts           `json:"plugin_opts,omitempty"`
 	ObfsParam                string                    `json:"obfs_param,omitempty"`
 	Protocol                 string                    `json:"protocol,omitempty"`
 	ProtocolParam            string                    `json:"protocol_param,omitempty"`
@@ -358,6 +359,14 @@ type SingWireguardMultiPeer struct {
 type SingObfs struct {
 	Password string `json:"password,omitempty"`
 	Type     string `json:"type,omitempty"`
+}
+
+type SingPluginOpts struct {
+	Mode string `json:"mode,omitempty"`
+	Host string `json:"host,omitempty"`
+	Path string `json:"path,omitempty"`
+	Tls  bool   `json:"tls,omitempty"`
+	Mux  string `json:"mux,omitempty"`
 }
 
 type SingConfig struct {
