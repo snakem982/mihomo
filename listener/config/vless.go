@@ -31,9 +31,13 @@ type VlessServer struct {
 }
 
 type XHTTPConfig struct {
-	Path string
-	Host string
-	Mode string
+	Path                 string
+	Host                 string
+	Mode                 string
+	NoSSEHeader          bool
+	ScStreamUpServerSecs string
+	ScMaxBufferedPosts   string
+	ScMaxEachPostBytes   string
 }
 
 func (t VlessServer) String() string {

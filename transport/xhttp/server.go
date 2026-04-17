@@ -16,9 +16,7 @@ import (
 )
 
 type ServerOption struct {
-	Path        string
-	Host        string
-	Mode        string
+	Config
 	ConnHandler func(net.Conn)
 	HttpHandler http.Handler
 }
@@ -77,14 +75,14 @@ func (c *httpServerConn) Wait() <-chan struct{} {
 }
 
 type httpSession struct {
-	uploadQueue *uploadQueue
+	uploadQueue *UploadQueue
 	connected   chan struct{}
 	once        sync.Once
 }
 
-func newHTTPSession() *httpSession {
+func newHTTPSession(maxPackets int) *httpSession {
 	return &httpSession{
-		uploadQueue: NewUploadQueue(),
+		uploadQueue: NewUploadQueue(maxPackets),
 		connected:   make(chan struct{}),
 	}
 }
@@ -96,40 +94,44 @@ func (s *httpSession) markConnected() {
 }
 
 type requestHandler struct {
-	path        string
-	host        string
-	mode        string
+	config      Config
 	connHandler func(net.Conn)
 	httpHandler http.Handler
+
+	scMaxEachPostBytes   Range
+	scStreamUpServerSecs Range
+	scMaxBufferedPosts   Range
 
 	mu       sync.Mutex
 	sessions map[string]*httpSession
 }
 
-func NewServerHandler(opt ServerOption) http.Handler {
-	path := opt.Path
-	if path == "" {
-		path = "/"
+func NewServerHandler(opt ServerOption) (http.Handler, error) {
+	scMaxEachPostBytes, err := opt.Config.GetNormalizedScMaxEachPostBytes()
+	if err != nil {
+		return nil, err
 	}
-	if !strings.HasPrefix(path, "/") {
-		path = "/" + path
+	scStreamUpServerSecs, err := opt.Config.GetNormalizedScStreamUpServerSecs()
+	if err != nil {
+		return nil, err
 	}
-	if !strings.HasSuffix(path, "/") {
-		path += "/"
+	scMaxBufferedPosts, err := opt.Config.GetNormalizedScMaxBufferedPosts()
+	if err != nil {
+		return nil, err
 	}
-
 	// using h2c.NewHandler to ensure we can work in plain http2
 	// and some tls conn is not *tls.Conn (like *reality.Conn)
 	return h2c.NewHandler(&requestHandler{
-		path:        path,
-		host:        opt.Host,
-		mode:        opt.Mode,
-		connHandler: opt.ConnHandler,
-		httpHandler: opt.HttpHandler,
-		sessions:    map[string]*httpSession{},
+		config:               opt.Config,
+		connHandler:          opt.ConnHandler,
+		httpHandler:          opt.HttpHandler,
+		scMaxEachPostBytes:   scMaxEachPostBytes,
+		scStreamUpServerSecs: scStreamUpServerSecs,
+		scMaxBufferedPosts:   scMaxBufferedPosts,
+		sessions:             map[string]*httpSession{},
 	}, &http.Http2Server{
 		IdleTimeout: 30 * time.Second,
-	})
+	}), nil
 }
 
 func (h *requestHandler) getOrCreateSession(sessionID string) *httpSession {
@@ -141,7 +143,7 @@ func (h *requestHandler) getOrCreateSession(sessionID string) *httpSession {
 		return s
 	}
 
-	s = newHTTPSession()
+	s = newHTTPSession(h.scMaxBufferedPosts.Max)
 	h.sessions[sessionID] = s
 	return s
 }
@@ -162,27 +164,71 @@ func (h *requestHandler) getSession(sessionID string) *httpSession {
 	return h.sessions[sessionID]
 }
 
+func (h *requestHandler) normalizedMode() string {
+	if h.config.Mode == "" {
+		return "auto"
+	}
+	return h.config.Mode
+}
+
+func (h *requestHandler) allowStreamOne() bool {
+	switch h.normalizedMode() {
+	case "auto", "stream-one", "stream-up":
+		return true
+	default:
+		return false
+	}
+}
+
+func (h *requestHandler) allowSessionDownload() bool {
+	switch h.normalizedMode() {
+	case "auto", "stream-up", "packet-up":
+		return true
+	default:
+		return false
+	}
+}
+
+func (h *requestHandler) allowStreamUpUpload() bool {
+	switch h.normalizedMode() {
+	case "auto", "stream-up":
+		return true
+	default:
+		return false
+	}
+}
+
+func (h *requestHandler) allowPacketUpUpload() bool {
+	switch h.normalizedMode() {
+	case "auto", "packet-up":
+		return true
+	default:
+		return false
+	}
+}
+
 func (h *requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if h.httpHandler != nil && !strings.HasPrefix(r.URL.Path, h.path) {
+	path := h.config.NormalizedPath()
+	if h.httpHandler != nil && !strings.HasPrefix(r.URL.Path, path) {
 		h.httpHandler.ServeHTTP(w, r)
 		return
 	}
 
-	if h.host != "" && !equalHost(r.Host, h.host) {
+	if h.config.Host != "" && !equalHost(r.Host, h.config.Host) {
 		http.NotFound(w, r)
 		return
 	}
 
-	if !strings.HasPrefix(r.URL.Path, h.path) {
+	if !strings.HasPrefix(r.URL.Path, path) {
 		http.NotFound(w, r)
 		return
 	}
 
-	rest := strings.TrimPrefix(r.URL.Path, h.path)
+	rest := strings.TrimPrefix(r.URL.Path, path)
 	parts := splitNonEmpty(rest)
 
 	// stream-one: POST /path
-	if r.Method == http.MethodPost && len(parts) == 0 {
+	if r.Method == http.MethodPost && len(parts) == 0 && h.allowStreamOne() {
 		w.Header().Set("X-Accel-Buffering", "no")
 		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusOK)
@@ -208,14 +254,22 @@ func (h *requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// packet-up download: GET /path/{session}
-	if r.Method == http.MethodGet && len(parts) == 1 {
+	// stream-up/packet-up download: GET /path/{session}
+	if r.Method == http.MethodGet && len(parts) == 1 && h.allowSessionDownload() {
 		sessionID := parts[0]
 		session := h.getOrCreateSession(sessionID)
 		session.markConnected()
 
+		// magic header instructs nginx + apache to not buffer response body
 		w.Header().Set("X-Accel-Buffering", "no")
+		// A web-compliant header telling all middleboxes to disable caching.
+		// Should be able to prevent overloading the cache, or stop CDNs from
+		// teeing the response stream into their cache, causing slowdowns.
 		w.Header().Set("Cache-Control", "no-store")
+		if !h.config.NoSSEHeader {
+			// magic header to make the HTTP middle box consider this as SSE to disable buffer
+			w.Header().Set("Content-Type", "text/event-stream")
+		}
 		w.WriteHeader(http.StatusOK)
 		if flusher, ok := w.(http.Flusher); ok {
 			flusher.Flush()
@@ -243,7 +297,7 @@ func (h *requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// stream-up upload: POST /path/{session}
-	if r.Method == http.MethodPost && len(parts) == 1 {
+	if r.Method == http.MethodPost && len(parts) == 1 && h.allowStreamUpUpload() {
 		sessionID := parts[0]
 		session := h.getSession(sessionID)
 		if session == nil {
@@ -251,38 +305,54 @@ func (h *requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		buf := make([]byte, 32*1024)
-		var seq uint64
-
-		for {
-			n, err := r.Body.Read(buf)
-			if n > 0 {
-				if pushErr := session.uploadQueue.Push(Packet{
-					Seq:     seq,
-					Payload: buf[:n],
-				}); pushErr != nil {
-					http.Error(w, pushErr.Error(), http.StatusInternalServerError)
-					return
-				}
-				seq++
-			}
-
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
+		httpSC := newHTTPServerConn(w, r.Body)
+		err := session.uploadQueue.Push(Packet{
+			Reader: httpSC,
+		})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
+		// magic header instructs nginx + apache to not buffer response body
+		w.Header().Set("X-Accel-Buffering", "no")
+		// A web-compliant header telling all middleboxes to disable caching.
+		// Should be able to prevent overloading the cache, or stop CDNs from
+		// teeing the response stream into their cache, causing slowdowns.
 		w.Header().Set("Cache-Control", "no-store")
+		if !h.config.NoSSEHeader {
+			// magic header to make the HTTP middle box consider this as SSE to disable buffer
+			w.Header().Set("Content-Type", "text/event-stream")
+		}
 		w.WriteHeader(http.StatusOK)
+		referrer := r.Header.Get("Referer")
+		if referrer != "" && h.scStreamUpServerSecs.Max > 0 {
+			go func() {
+				for {
+					paddingValue, _ := h.config.RandomPadding()
+					if paddingValue == "" {
+						break
+					}
+					_, err = httpSC.Write([]byte(paddingValue))
+					if err != nil {
+						break
+					}
+					time.Sleep(time.Duration(h.scStreamUpServerSecs.Rand()) * time.Second)
+				}
+			}()
+		}
+
+		select {
+		case <-r.Context().Done():
+		case <-httpSC.Wait():
+		}
+
+		_ = httpSC.Close()
 		return
 	}
 
 	// packet-up upload: POST /path/{session}/{seq}
-	if r.Method == http.MethodPost && len(parts) == 2 {
+	if r.Method == http.MethodPost && len(parts) == 2 && h.allowPacketUpUpload() {
 		sessionID := parts[0]
 		seq, err := strconv.ParseUint(parts[1], 10, 64)
 		if err != nil {
@@ -296,16 +366,22 @@ func (h *requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		body, err := io.ReadAll(r.Body)
+		if r.ContentLength > int64(h.scMaxEachPostBytes.Max) {
+			http.Error(w, "body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+
+		body, err := io.ReadAll(io.LimitReader(r.Body, int64(h.scMaxEachPostBytes.Max)+1))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		if err := session.uploadQueue.Push(Packet{
+		err = session.uploadQueue.Push(Packet{
 			Seq:     seq,
 			Payload: body,
-		}); err != nil {
+		})
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

@@ -91,6 +91,8 @@ type tunSchema struct {
 	IncludeAndroidUser                    *[]int          `yaml:"include-android-user" json:"include-android-user,omitempty"`
 	IncludePackage                        *[]string       `yaml:"include-package" json:"include-package,omitempty"`
 	ExcludePackage                        *[]string       `yaml:"exclude-package" json:"exclude-package,omitempty"`
+	IncludeMACAddress                     *[]string       `yaml:"include-mac-address" json:"include-mac-address,omitempty"`
+	ExcludeMACAddress                     *[]string       `yaml:"exclude-mac-address" json:"exclude-mac-address,omitempty"`
 	EndpointIndependentNat                *bool           `yaml:"endpoint-independent-nat" json:"endpoint-independent-nat,omitempty"`
 	UDPTimeout                            *int64          `yaml:"udp-timeout" json:"udp-timeout,omitempty"`
 	FileDescriptor                        *int            `yaml:"file-descriptor" json:"file-descriptor"`
@@ -118,6 +120,7 @@ type tuicServerSchema struct {
 	ALPN                  *[]string          `yaml:"alpn" json:"alpn,omitempty"`
 	MaxUdpRelayPacketSize *int               `yaml:"max-udp-relay-packet-size" json:"max-udp-relay-packet-size,omitempty"`
 	CWND                  *int               `yaml:"cwnd" json:"cwnd,omitempty"`
+	BBRProfile            *string            `yaml:"bbr-profile" json:"bbr-profile,omitempty"`
 }
 
 func getConfigs(w http.ResponseWriter, r *http.Request) {
@@ -240,6 +243,12 @@ func pointerOrDefaultTun(p *tunSchema, def LC.Tun) LC.Tun {
 		if p.ExcludePackage != nil {
 			def.ExcludePackage = *p.ExcludePackage
 		}
+		if p.IncludeMACAddress != nil {
+			def.IncludeMACAddress = *p.IncludeMACAddress
+		}
+		if p.ExcludeMACAddress != nil {
+			def.ExcludeMACAddress = *p.ExcludeMACAddress
+		}
 		if p.EndpointIndependentNat != nil {
 			def.EndpointIndependentNat = *p.EndpointIndependentNat
 		}
@@ -294,6 +303,9 @@ func pointerOrDefaultTuicServer(p *tuicServerSchema, def LC.TuicServer) LC.TuicS
 		}
 		if p.CWND != nil {
 			def.CWND = *p.CWND
+		}
+		if p.BBRProfile != nil {
+			def.BBRProfile = *p.BBRProfile
 		}
 	}
 	return def
