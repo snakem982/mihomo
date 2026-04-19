@@ -12,7 +12,6 @@ import (
 	"net/url"
 	"strconv"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/metacubex/mihomo/common/httputils"
@@ -22,7 +21,6 @@ import (
 	"github.com/metacubex/quic-go"
 	"github.com/metacubex/quic-go/http3"
 	"github.com/metacubex/tls"
-	"golang.org/x/sync/semaphore"
 )
 
 // ConnIdleTimeout defines the maximum time an idle TCP session can survive in the tunnel,
@@ -116,7 +114,7 @@ func (c *PacketUpWriter) write(b []byte) (int, error) {
 		Path:   c.cfg.NormalizedPath(),
 	}
 
-	req, err := http.NewRequestWithContext(c.ctx, http.MethodPost, u.String(), nil)
+	req, err := http.NewRequestWithContext(c.ctx, c.cfg.GetNormalizedUplinkHTTPMethod(), u.String(), nil)
 	if err != nil {
 		return 0, err
 	}
@@ -178,12 +176,7 @@ func NewTransport(dialRaw DialRawFunc, wrapTLS WrapTLSFunc, dialQUIC DialQUICFun
 		}
 	}
 	if len(alpn) == 1 && alpn[0] == "http/1.1" { // `alpn: [http/1.1]` means using http/1.1 mode
-		w := semaphore.NewWeighted(20) // limit concurrent dialing to avoid WSAECONNREFUSED on Windows
 		dialContext := func(ctx context.Context, network, addr string) (net.Conn, error) {
-			if err := w.Acquire(ctx, 1); err != nil {
-				return nil, err
-			}
-			defer w.Release(1)
 			raw, err := dialRaw(ctx)
 			if err != nil {
 				return nil, err
@@ -351,19 +344,16 @@ func (c *Client) DialStreamOne() (net.Conn, error) {
 	// This breaks the deadlock where CDN buffers response headers until the
 	// server sends body data, but the server waits for our request body,
 	// which can't be sent because we haven't returned the conn yet.
-	gotConn := make(chan struct{})
-	var gotConnOnce sync.Once
-	var tcpConnected atomic.Bool
+	gotConn := make(chan bool, 1)
 
 	addrCtx := httputils.NewAddrContext(&conn.NetAddr, c.ctx)
 	ctx := httptrace.WithClientTrace(addrCtx, &httptrace.ClientTrace{
 		GotConn: func(info httptrace.GotConnInfo) {
-			tcpConnected.Store(true)
-			gotConnOnce.Do(func() { close(gotConn) })
+			gotConn <- true
 		},
 	})
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, requestURL.String(), pr)
+	req, err := http.NewRequestWithContext(ctx, c.cfg.GetNormalizedUplinkHTTPMethod(), requestURL.String(), pr)
 	if err != nil {
 		_ = pr.Close()
 		_ = pw.Close()
@@ -385,21 +375,18 @@ func (c *Client) DialStreamOne() (net.Conn, error) {
 		resp, err := transport.RoundTrip(req)
 		if err != nil {
 			wrc.CloseWithError(err)
-			gotConnOnce.Do(func() { close(gotConn) })
+			close(gotConn)
 			return
 		}
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			_ = resp.Body.Close()
 			wrc.CloseWithError(fmt.Errorf("xhttp stream-one bad status: %s", resp.Status))
-			gotConnOnce.Do(func() { close(gotConn) })
 			return
 		}
 		wrc.Set(resp.Body)
 	}()
 
-	<-gotConn
-
-	if !tcpConnected.Load() {
+	if !<-gotConn {
 		// RoundTrip failed before TCP connected (e.g. DNS failure)
 		_ = pr.Close()
 		_ = pw.Close()
@@ -447,15 +434,12 @@ func (c *Client) DialStreamUp() (net.Conn, error) {
 	sessionID := newSessionID()
 
 	// Async download: avoid blocking on CDN response header buffering
-	gotConn := make(chan struct{})
-	var gotConnOnce sync.Once
-	var tcpConnected atomic.Bool
+	gotConn := make(chan bool, 1)
 
 	addrCtx := httputils.NewAddrContext(&conn.NetAddr, c.ctx)
 	downloadCtx := httptrace.WithClientTrace(addrCtx, &httptrace.ClientTrace{
 		GotConn: func(info httptrace.GotConnInfo) {
-			tcpConnected.Store(true)
-			gotConnOnce.Do(func() { close(gotConn) })
+			gotConn <- true
 		},
 	})
 
@@ -480,7 +464,7 @@ func (c *Client) DialStreamUp() (net.Conn, error) {
 
 	uploadReq, err := http.NewRequestWithContext(
 		c.ctx,
-		http.MethodPost,
+		c.cfg.GetNormalizedUplinkHTTPMethod(),
 		streamURL.String(),
 		pr,
 	)
@@ -503,21 +487,18 @@ func (c *Client) DialStreamUp() (net.Conn, error) {
 		resp, err := downloadTransport.RoundTrip(downloadReq)
 		if err != nil {
 			wrc.CloseWithError(err)
-			gotConnOnce.Do(func() { close(gotConn) })
+			close(gotConn)
 			return
 		}
 		if resp.StatusCode != http.StatusOK {
 			_ = resp.Body.Close()
 			wrc.CloseWithError(fmt.Errorf("xhttp stream-up download bad status: %s", resp.Status))
-			gotConnOnce.Do(func() { close(gotConn) })
 			return
 		}
 		wrc.Set(resp.Body)
 	}()
 
-	<-gotConn
-
-	if !tcpConnected.Load() {
+	if !<-gotConn {
 		_ = pr.Close()
 		_ = pw.Close()
 		httputils.CloseTransport(uploadTransport)
@@ -587,15 +568,12 @@ func (c *Client) DialPacketUp() (net.Conn, error) {
 	conn := &Conn{writer: writer}
 
 	// Async download: avoid blocking on CDN response header buffering
-	gotConn := make(chan struct{})
-	var gotConnOnce sync.Once
-	var tcpConnected atomic.Bool
+	gotConn := make(chan bool, 1)
 
 	addrCtx := httputils.NewAddrContext(&conn.NetAddr, c.ctx)
 	downloadCtx := httptrace.WithClientTrace(addrCtx, &httptrace.ClientTrace{
 		GotConn: func(info httptrace.GotConnInfo) {
-			tcpConnected.Store(true)
-			gotConnOnce.Do(func() { close(gotConn) })
+			gotConn <- true
 		},
 	})
 
@@ -623,21 +601,18 @@ func (c *Client) DialPacketUp() (net.Conn, error) {
 		resp, err := downloadTransport.RoundTrip(downloadReq)
 		if err != nil {
 			wrc.CloseWithError(err)
-			gotConnOnce.Do(func() { close(gotConn) })
+			close(gotConn)
 			return
 		}
 		if resp.StatusCode != http.StatusOK {
 			_ = resp.Body.Close()
 			wrc.CloseWithError(fmt.Errorf("xhttp packet-up download bad status: %s", resp.Status))
-			gotConnOnce.Do(func() { close(gotConn) })
 			return
 		}
 		wrc.Set(resp.Body)
 	}()
 
-	<-gotConn
-
-	if !tcpConnected.Load() {
+	if !<-gotConn {
 		httputils.CloseTransport(uploadTransport)
 		httputils.CloseTransport(downloadTransport)
 		var buf [0]byte
@@ -679,38 +654,36 @@ func NewWaitReadCloser() *WaitReadCloser {
 // Must be called at most once. If Close was already called, rc is closed to
 // prevent leaks.
 func (w *WaitReadCloser) Set(rc io.ReadCloser) {
-	set := false
-	w.once.Do(func() {
-		w.rc = rc
-		set = true
-		close(w.wait)
-	})
-	if !set {
-		rc.Close()
-	}
+	w.setup(rc, nil)
 }
 
 // CloseWithError records an error and unblocks any pending Read calls.
 func (w *WaitReadCloser) CloseWithError(err error) {
+	w.setup(nil, err)
+}
+
+// setup sets the underlying ReadCloser and error.
+func (w *WaitReadCloser) setup(rc io.ReadCloser, err error) {
 	w.once.Do(func() {
+		w.rc = rc
 		w.err = err
 		close(w.wait)
 	})
+	if w.err != nil && rc != nil {
+		_ = rc.Close()
+	}
 }
 
 func (w *WaitReadCloser) Read(b []byte) (int, error) {
 	<-w.wait
-	if w.rc != nil {
-		return w.rc.Read(b)
-	}
-	if w.err != nil {
+	if w.rc == nil {
 		return 0, w.err
 	}
-	return 0, io.ErrClosedPipe
+	return w.rc.Read(b)
 }
 
 func (w *WaitReadCloser) Close() error {
-	w.once.Do(func() { close(w.wait) })
+	w.setup(nil, net.ErrClosed)
 	<-w.wait
 	if w.rc != nil {
 		return w.rc.Close()

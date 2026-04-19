@@ -22,8 +22,8 @@ github.com/dmitryikh/leaves v0.0.0-20230708180554-25d19a787328 h1:ht/zhLOAy9iiEK
 github.com/dmitryikh/leaves v0.0.0-20230708180554-25d19a787328/go.mod h1:wzMig9tMIJB8HsxXHppa9yRPo8BpO0eBM/Z4xnaohCQ=
 github.com/dunglas/httpsfv v1.0.2 h1:iERDp/YAfnojSDJ7PW3dj1AReJz4MrwbECSSE59JWL0=
 github.com/dunglas/httpsfv v1.0.2/go.mod h1:zID2mqw9mFsnt7YC3vYQ9/cjq30q41W+1AnDwH8TiMg=
-github.com/enfein/mieru/v3 v3.30.1 h1:gHHXQfpQO/5d789o9kokVfej7jl795aJwPihUk3gTDU=
-github.com/enfein/mieru/v3 v3.30.1/go.mod h1:zJBUCsi5rxyvHM8fjFf+GLaEl4OEjjBXr1s5F6Qd3hM=
+github.com/enfein/mieru/v3 v3.31.0 h1:Fl2ocRCRXJzMygzdRjBHgqI996ZuIDHUmyQyovSf9sA=
+github.com/enfein/mieru/v3 v3.31.0/go.mod h1:zJBUCsi5rxyvHM8fjFf+GLaEl4OEjjBXr1s5F6Qd3hM=
 github.com/ericlagergren/aegis v0.0.0-20250325060835-cd0defd64358 h1:kXYqH/sL8dS/FdoFjr12ePjnLPorPo2FsnrHNuXSDyo=
 github.com/ericlagergren/aegis v0.0.0-20250325060835-cd0defd64358/go.mod h1:hkIFzoiIPZYxdFOOLyDho59b7SrDfo+w3h+yWdlg45I=
 github.com/ericlagergren/polyval v0.0.0-20220411101811-e25bc10ba391 h1:8j2RH289RJplhA6WfdaPqzg1MjH2K8wX5e0uhAxrw2g=
