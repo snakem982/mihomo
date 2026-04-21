@@ -22,6 +22,7 @@ var (
 	bucketFakeip6          = []byte("fakeip6")
 	bucketETag             = []byte("etag")
 	bucketSubscriptionInfo = []byte("subscriptioninfo")
+	bucketStorage          = []byte("storage")
 	bucketSmartStats       = []byte("smart_stats")
 )
 
