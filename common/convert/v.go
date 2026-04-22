@@ -91,7 +91,6 @@ func handleVShareLink(names map[string]int, url *url.URL, scheme string, proxy m
 		proxy["http-opts"] = httpOpts
 
 	case "h2":
-		headers := make(map[string]any)
 		h2Opts := make(map[string]any)
 		h2Opts["path"] = "/"
 		if path := query.Get("path"); path != "" {
@@ -100,7 +99,6 @@ func handleVShareLink(names map[string]int, url *url.URL, scheme string, proxy m
 		if host := query.Get("host"); host != "" {
 			h2Opts["host"] = []string{host}
 		}
-		h2Opts["headers"] = headers
 		proxy["h2-opts"] = h2Opts
 
 	case "ws", "httpupgrade":
@@ -341,57 +339,6 @@ func parseXHTTPExtra(extra map[string]any, opts map[string]any) {
 			}
 			if headers, ok := xhttpAny["headers"].(map[string]any); ok && len(headers) > 0 {
 				ds["headers"] = headers
-			}
-			if v, ok := xhttpAny["noGRPCHeader"].(bool); ok && v {
-				ds["no-grpc-header"] = true
-			}
-			if v, ok := xhttpAny["xPaddingBytes"].(string); ok && v != "" {
-				ds["x-padding-bytes"] = v
-			}
-			if v, ok := xhttpAny["xPaddingObfsMode"].(bool); ok {
-				ds["x-padding-obfs-mode"] = v
-			}
-			if v, ok := xhttpAny["xPaddingKey"].(string); ok && v != "" {
-				ds["x-padding-key"] = v
-			}
-			if v, ok := xhttpAny["xPaddingHeader"].(string); ok && v != "" {
-				ds["x-padding-header"] = v
-			}
-			if v, ok := xhttpAny["xPaddingPlacement"].(string); ok && v != "" {
-				ds["x-padding-placement"] = v
-			}
-			if v, ok := xhttpAny["xPaddingMethod"].(string); ok && v != "" {
-				ds["x-padding-method"] = v
-			}
-			if v, ok := xhttpAny["uplinkHttpMethod"].(string); ok && v != "" {
-				ds["uplink-http-method"] = v
-			}
-			if v, ok := xhttpAny["sessionPlacement"].(string); ok && v != "" {
-				ds["session-placement"] = v
-			}
-			if v, ok := xhttpAny["sessionKey"].(string); ok && v != "" {
-				ds["session-key"] = v
-			}
-			if v, ok := xhttpAny["seqPlacement"].(string); ok && v != "" {
-				ds["seq-placement"] = v
-			}
-			if v, ok := xhttpAny["seqKey"].(string); ok && v != "" {
-				ds["seq-key"] = v
-			}
-			if v, ok := xhttpAny["uplinkDataPlacement"].(string); ok && v != "" {
-				ds["uplink-data-placement"] = v
-			}
-			if v, ok := xhttpAny["uplinkDataKey"].(string); ok && v != "" {
-				ds["uplink-data-key"] = v
-			}
-			if v, ok := xhttpAny["uplinkChunkSize"].(float64); ok {
-				ds["uplink-chunk-size"] = int(v)
-			}
-			if v, ok := xhttpAny["scMaxEachPostBytes"].(float64); ok {
-				ds["sc-max-each-post-bytes"] = int(v)
-			}
-			if v, ok := xhttpAny["scMinPostsIntervalMs"].(float64); ok {
-				ds["sc-min-posts-interval-ms"] = int(v)
 			}
 
 			// xmux inside downloadSettings.xhttpSettings.extra → download-settings.reuse-settings
