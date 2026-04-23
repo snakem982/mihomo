@@ -1,14 +1,17 @@
-package convert
+package convert_test
 
 import (
 	"testing"
+
+	"github.com/metacubex/mihomo/adapter"
+	. "github.com/metacubex/mihomo/common/convert"
 
 	"github.com/stretchr/testify/assert"
 )
 
 // https://v2.hysteria.network/zh/docs/developers/URI-Scheme/
 func TestConvertsV2Ray_normal(t *testing.T) {
-	hy2test := "hysteria2://letmein@example.com:8443/?insecure=1&obfs=salamander&obfs-password=gawrgura&pinSHA256=deadbeef&sni=real.example.com&up=114&down=514&alpn=h3,h4#hy2test"
+	hy2test := "hysteria2://letmein@example.com:8443/?insecure=1&obfs=salamander&obfs-password=gawrgura&pinSHA256=65b3acd7db555768304a16abb6f4366c1a0c0bb5cec81429617f0150d7d66726&sni=real.example.com&up=114&down=514&alpn=h3,h4#hy2test"
 
 	expected := []map[string]interface{}{
 		{
@@ -24,7 +27,7 @@ func TestConvertsV2Ray_normal(t *testing.T) {
 			"up":               "114",
 			"down":             "514",
 			"skip-cert-verify": true,
-			"fingerprint":      "deadbeef",
+			"fingerprint":      "65b3acd7db555768304a16abb6f4366c1a0c0bb5cec81429617f0150d7d66726",
 		},
 	}
 
@@ -32,10 +35,13 @@ func TestConvertsV2Ray_normal(t *testing.T) {
 
 	assert.Nil(t, err)
 	assert.Equal(t, expected, proxies)
+
+	_, err = adapter.ParseProxy(proxies[0])
+	assert.NoError(t, err)
 }
 
 func TestConvertsV2RayMieru(t *testing.T) {
-	mierusTest := "mierus://user:pass@1.2.3.4?handshake-mode=HANDSHAKE_NO_WAIT&mtu=1400&multiplexing=MULTIPLEXING_HIGH&port=6666&port=9998-9999&port=6489&port=4896&profile=default&protocol=TCP&protocol=TCP&protocol=UDP&protocol=UDP&traffic-pattern=CCoQAQ"
+	mierusTest := "mierus://user:pass@1.2.3.4?handshake-mode=HANDSHAKE_NO_WAIT&mtu=1400&multiplexing=MULTIPLEXING_HIGH&port=6666&port=9998-9999&port=6489&port=4896&profile=default&protocol=TCP&protocol=TCP&protocol=UDP&protocol=UDP&traffic-pattern=CCoQARoECAEQCiIYCAMQASoIMDAwMTAyMDMqCDA0MDUwNjA3"
 
 	expected := []map[string]any{
 		{
@@ -49,7 +55,7 @@ func TestConvertsV2RayMieru(t *testing.T) {
 			"password":        "pass",
 			"multiplexing":    "MULTIPLEXING_HIGH",
 			"handshake-mode":  "HANDSHAKE_NO_WAIT",
-			"traffic-pattern": "CCoQAQ",
+			"traffic-pattern": "CCoQARoECAEQCiIYCAMQASoIMDAwMTAyMDMqCDA0MDUwNjA3",
 		},
 		{
 			"name":            "default:9998-9999/TCP",
@@ -62,7 +68,7 @@ func TestConvertsV2RayMieru(t *testing.T) {
 			"password":        "pass",
 			"multiplexing":    "MULTIPLEXING_HIGH",
 			"handshake-mode":  "HANDSHAKE_NO_WAIT",
-			"traffic-pattern": "CCoQAQ",
+			"traffic-pattern": "CCoQARoECAEQCiIYCAMQASoIMDAwMTAyMDMqCDA0MDUwNjA3",
 		},
 		{
 			"name":            "default:6489/UDP",
@@ -75,7 +81,7 @@ func TestConvertsV2RayMieru(t *testing.T) {
 			"password":        "pass",
 			"multiplexing":    "MULTIPLEXING_HIGH",
 			"handshake-mode":  "HANDSHAKE_NO_WAIT",
-			"traffic-pattern": "CCoQAQ",
+			"traffic-pattern": "CCoQARoECAEQCiIYCAMQASoIMDAwMTAyMDMqCDA0MDUwNjA3",
 		},
 		{
 			"name":            "default:4896/UDP",
@@ -88,7 +94,7 @@ func TestConvertsV2RayMieru(t *testing.T) {
 			"password":        "pass",
 			"multiplexing":    "MULTIPLEXING_HIGH",
 			"handshake-mode":  "HANDSHAKE_NO_WAIT",
-			"traffic-pattern": "CCoQAQ",
+			"traffic-pattern": "CCoQARoECAEQCiIYCAMQASoIMDAwMTAyMDMqCDA0MDUwNjA3",
 		},
 	}
 
@@ -96,6 +102,9 @@ func TestConvertsV2RayMieru(t *testing.T) {
 
 	assert.Nil(t, err)
 	assert.Equal(t, expected, proxies)
+
+	_, err = adapter.ParseProxy(proxies[0])
+	assert.NoError(t, err)
 }
 
 func TestConvertsV2RayMieruMinimal(t *testing.T) {
@@ -118,6 +127,9 @@ func TestConvertsV2RayMieruMinimal(t *testing.T) {
 
 	assert.Nil(t, err)
 	assert.Equal(t, expected, proxies)
+
+	_, err = adapter.ParseProxy(proxies[0])
+	assert.NoError(t, err)
 }
 
 func TestConvertsV2RayMieruFragment(t *testing.T) {
@@ -128,10 +140,13 @@ func TestConvertsV2RayMieruFragment(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Len(t, proxies, 1)
 	assert.Equal(t, "myproxy:443/TCP", proxies[0]["name"])
+
+	_, err = adapter.ParseProxy(proxies[0])
+	assert.NoError(t, err)
 }
 
 func TestConvertsV2RayVlessRealityVisionTCPWithoutHeaderType(t *testing.T) {
-	vlessTest := "vless://a1b2c3d4-eacc-4433-981b-7e5f9a8b@142.98.76.54:34888?encryption=none&security=reality&type=tcp&sni=github.io&fp=chrome&pbk=TifX9kL2mPqRsTuVwXyZ_JdUWw&sid=6ba85179f3a2b4c5&flow=xtls-rprx-vision#My-VLESS-Reality-Vision"
+	vlessTest := "vless://a1b2c3d4-eacc-4433-981b-7e5f9a8b@142.98.76.54:34888?encryption=none&security=reality&type=tcp&sni=github.io&fp=chrome&pbk=ppQ9FwLrLIa0AOrp1WvcyiaQ37vg2WSy_CD4bIdiTUw&sid=6ba85179f3a2b4c5&flow=xtls-rprx-vision#My-VLESS-Reality-Vision"
 
 	proxies, err := ConvertsV2Ray([]byte(vlessTest))
 
@@ -143,6 +158,9 @@ func TestConvertsV2RayVlessRealityVisionTCPWithoutHeaderType(t *testing.T) {
 	assert.Equal(t, "github.io", proxies[0]["servername"])
 	assert.NotContains(t, proxies[0], "http-opts")
 	assert.NotContains(t, proxies[0], "h2-opts")
+
+	_, err = adapter.ParseProxy(proxies[0])
+	assert.NoError(t, err)
 }
 
 func TestConvertsV2RayVlessTCPHTTPHeaderType(t *testing.T) {
@@ -161,6 +179,9 @@ func TestConvertsV2RayVlessTCPHTTPHeaderType(t *testing.T) {
 		},
 	}, proxies[0]["http-opts"])
 	assert.NotContains(t, proxies[0], "h2-opts")
+
+	_, err = adapter.ParseProxy(proxies[0])
+	assert.NoError(t, err)
 }
 
 func TestConvertsV2RayVlessHTTPTransportUsesH2Opts(t *testing.T) {
@@ -176,6 +197,9 @@ func TestConvertsV2RayVlessHTTPTransportUsesH2Opts(t *testing.T) {
 		"path": "/grpc",
 	}, proxies[0]["h2-opts"])
 	assert.NotContains(t, proxies[0], "http-opts")
+
+	_, err = adapter.ParseProxy(proxies[0])
+	assert.NoError(t, err)
 }
 
 // Regression test for MetaCubeX/mihomo#2738: the legacy v2rayN-style
@@ -198,6 +222,9 @@ func TestConvertsV2RayVmessBase64H2Transport(t *testing.T) {
 		"path": "/grpc",
 	}, proxies[0]["h2-opts"])
 	assert.NotContains(t, proxies[0], "http-opts")
+
+	_, err = adapter.ParseProxy(proxies[0])
+	assert.NoError(t, err)
 }
 
 // `net: http` with `type != "http"` is remapped to h2 transport
@@ -221,4 +248,7 @@ func TestConvertsV2RayVmessBase64HTTPRemappedToH2Transport(t *testing.T) {
 		"path": "/grpc",
 	}, proxies[0]["h2-opts"])
 	assert.NotContains(t, proxies[0], "http-opts")
+
+	_, err = adapter.ParseProxy(proxies[0])
+	assert.NoError(t, err)
 }
