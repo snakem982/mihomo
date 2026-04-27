@@ -3,6 +3,7 @@ package convert
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"reflect"
 	"strconv"
 	"strings"
@@ -180,22 +181,43 @@ func ConvertsSingBox(buf []byte) ([]map[string]any, error) {
 				ss["udp-over-tcp-version"] = outbound.UdpOverTcp.Version
 			}
 
-			if outbound.Plugin != "" && outbound.PluginOpts != nil {
-				switch outbound.Plugin {
+			if v1, ok1 := outbound.PluginOpts.(string); ok1 {
+				plugin := outbound.Plugin
+				pluginInfo, _ := url.ParseQuery(strings.ReplaceAll(v1, ";", "&"))
+				switch plugin {
 				case "v2ray-plugin":
 					ss["plugin"] = "v2ray-plugin"
 					ss["plugin-opts"] = map[string]any{
-						"mode": outbound.PluginOpts.Mode,
-						"host": outbound.PluginOpts.Host,
-						"path": outbound.PluginOpts.Path,
-						"tls":  outbound.PluginOpts.Tls,
-						"mux":  outbound.PluginOpts.Mux == "1",
+						"mode": pluginInfo.Get("mode"),
+						"host": pluginInfo.Get("host"),
+						"path": pluginInfo.Get("path"),
+						"tls":  strings.Contains(v1, "tls"),
 					}
-				case "obfs-local":
+				case "obfs", "obfs-local":
 					ss["plugin"] = "obfs"
 					ss["plugin-opts"] = map[string]any{
-						"mode": outbound.PluginOpts.Mode,
-						"host": outbound.PluginOpts.Host,
+						"mode": pluginInfo.Get("obfs"),
+						"host": pluginInfo.Get("obfs-host"),
+					}
+				}
+			} else if v2, ok2 := outbound.PluginOpts.(*SingPluginOpts); ok2 {
+				if outbound.Plugin != "" && outbound.PluginOpts != nil {
+					switch outbound.Plugin {
+					case "v2ray-plugin":
+						ss["plugin"] = "v2ray-plugin"
+						ss["plugin-opts"] = map[string]any{
+							"mode": v2.Mode,
+							"host": v2.Host,
+							"path": v2.Path,
+							"tls":  v2.Tls,
+							"mux":  v2.Mux == "1",
+						}
+					case "obfs", "obfs-local":
+						ss["plugin"] = "obfs"
+						ss["plugin-opts"] = map[string]any{
+							"mode": v2.Mode,
+							"host": v2.Host,
+						}
 					}
 				}
 			}
@@ -252,7 +274,7 @@ type SingBoxOption struct {
 	URL                      string                    `json:"url,omitempty"`
 	Network                  string                    `json:"network,omitempty"`
 	Plugin                   string                    `json:"plugin,omitempty"`
-	PluginOpts               *SingPluginOpts           `json:"plugin_opts,omitempty"`
+	PluginOpts               any                       `json:"plugin_opts,omitempty"`
 	ObfsParam                string                    `json:"obfs_param,omitempty"`
 	Protocol                 string                    `json:"protocol,omitempty"`
 	ProtocolParam            string                    `json:"protocol_param,omitempty"`
@@ -292,6 +314,42 @@ type SingBoxOption struct {
 	IdleSessionCheckInterval string                    `json:"idle_session_check_interval,omitempty"`
 	IdleSessionTimeout       string                    `json:"idle_session_timeout,omitempty"`
 	MinIdleSession           int                       `json:"min_idle_session,omitempty"`
+}
+
+func (c *SingBoxOption) UnmarshalJSON(data []byte) error {
+	// 定义一个临时结构，避免递归调用 UnmarshalJSON
+	type Alias SingBoxOption
+	aux := &struct {
+		PluginOpts json.RawMessage `json:"plugin_opts"`
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	if len(aux.PluginOpts) == 0 {
+		return nil
+	}
+
+	// 核心逻辑：尝试判断 PluginOpts 的内容
+	var s string
+	if err := json.Unmarshal(aux.PluginOpts, &s); err == nil {
+		// 如果成功解析为字符串
+		c.PluginOpts = s
+		return nil
+	}
+
+	// 如果不是字符串，尝试解析为结构体
+	var opts SingPluginOpts
+	if err := json.Unmarshal(aux.PluginOpts, &opts); err == nil {
+		c.PluginOpts = &opts
+		return nil
+	}
+
+	return fmt.Errorf("plugin_opts field has invalid type")
 }
 
 type SingUdpOverTcp struct {

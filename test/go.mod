@@ -54,14 +54,14 @@ require (
 	github.com/lunixbochs/struc v0.0.0-20200707160740-784aaebc1d40 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mdlayher/netlink v1.7.2 // indirect
-	github.com/mdlayher/socket v0.4.1 // indirect
+	github.com/mdlayher/socket v0.5.1 // indirect
 	github.com/metacubex/gopacket v1.1.20-0.20230608035415-7e2f98a3e759 // indirect
 	github.com/metacubex/gvisor v0.0.0-20251227095601-261ec1326fe8 // indirect
 	github.com/metacubex/quic-go v0.59.1-0.20260413153657-53bb22f2c306 // indirect
 	github.com/metacubex/sing-quic v0.0.0-20260414034501-3ea3410d197a // indirect
 	github.com/metacubex/sing-shadowsocks v0.2.12 // indirect
 	github.com/metacubex/sing-shadowsocks2 v0.2.7 // indirect
-	github.com/metacubex/sing-tun v0.4.17 // indirect
+	github.com/metacubex/sing-tun v0.4.18 // indirect
 	github.com/metacubex/sing-vmess v0.2.5 // indirect
 	github.com/metacubex/sing-wireguard v0.0.0-20250503063753-2dc62acc626f // indirect
 	github.com/moby/term v0.5.0 // indirect
@@ -101,7 +101,7 @@ require (
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/u-root/uio v0.0.0-20230220225925-ffce2a382923 // indirect
-	github.com/vishvananda/netns v0.0.4 // indirect
+	github.com/vishvananda/netns v0.0.5 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	github.com/zhangyunhao116/fastrand v0.3.0 // indirect

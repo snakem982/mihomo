@@ -124,6 +124,7 @@ github.com/mdlayher/netlink v1.7.2 h1:/UtM3ofJap7Vl4QWCPDGXY8d3GIY2UGSDbK+QWmY8/
 github.com/mdlayher/netlink v1.7.2/go.mod h1:xraEF7uJbxLhc5fpHL4cPe221LI2bdttWlU+ZGLfQSw=
 github.com/mdlayher/socket v0.4.1 h1:eM9y2/jlbs1M615oshPQOHZzj6R6wMT7bX5NPiQvn2U=
 github.com/mdlayher/socket v0.4.1/go.mod h1:cAqeGjoufqdxWkD7DkpyS+wcefOtmu5OQ8KuoJGIReA=
+github.com/mdlayher/socket v0.5.1/go.mod h1:TjPLHI1UgwEv5J1B5q0zTZq12A/6H7nKmtTanQE37IQ=
 github.com/metacubex/gopacket v1.1.20-0.20230608035415-7e2f98a3e759 h1:cjd4biTvOzK9ubNCCkQ+ldc4YSH/rILn53l/xGBFHHI=
 github.com/metacubex/gopacket v1.1.20-0.20230608035415-7e2f98a3e759/go.mod h1:UHOv2xu+RIgLwpXca7TLrXleEd4oR3sPatW6IF8wU88=
 github.com/metacubex/gvisor v0.0.0-20231001104248-0f672c3fb8d8 h1:npBvaPAT145UY8682AzpUMWpdIxJti/WPLjy7gCiYYs=
@@ -172,6 +173,7 @@ github.com/metacubex/sing-tun v0.4.12/go.mod h1:L/TjQY5JEGy8nvsuYmy/XgMFMCPiF0+A
 github.com/metacubex/sing-tun v0.4.15/go.mod h1:L/TjQY5JEGy8nvsuYmy/XgMFMCPiF0+AWSFCYfS6r9w=
 github.com/metacubex/sing-tun v0.4.16/go.mod h1:L/TjQY5JEGy8nvsuYmy/XgMFMCPiF0+AWSFCYfS6r9w=
 github.com/metacubex/sing-tun v0.4.17/go.mod h1:L/TjQY5JEGy8nvsuYmy/XgMFMCPiF0+AWSFCYfS6r9w=
+github.com/metacubex/sing-tun v0.4.18/go.mod h1:g4I/JNplDBhXLF+aQWgFbhNeJPSXQOWS9HvLeNvkgeA=
 github.com/metacubex/sing-vmess v0.1.9-0.20230921005247-a0488d7dac74 h1:FtupiyFkaVjFvRa7B/uDtRWg5BNsoyPC9MTev3sDasY=
 github.com/metacubex/sing-vmess v0.1.9-0.20230921005247-a0488d7dac74/go.mod h1:8EWBZpc+qNvf5gmvjAtMHK1/DpcWqzfcBL842K00BsM=
 github.com/metacubex/sing-vmess v0.2.2/go.mod h1:CVDNcdSLVYFgTHQlubr88d8CdqupAUDqLjROos+H9xk=
@@ -291,6 +293,7 @@ github.com/vishvananda/netns v0.0.0-20210104183010-2eb08e3e575f/go.mod h1:DD4vA1
 github.com/vishvananda/netns v0.0.0-20211101163701-50045581ed74 h1:gga7acRE695APm9hlsSMoOoE65U4/TcqNj90mc69Rlg=
 github.com/vishvananda/netns v0.0.0-20211101163701-50045581ed74/go.mod h1:DD4vA1DwXk04H54A1oHXtwZmA0grkVMdPxx/VGLCah0=
 github.com/vishvananda/netns v0.0.4/go.mod h1:SpkAiCQRtJ6TvvxPnOSyH3BMl6unz3xZlaprSwhNNJM=
+github.com/vishvananda/netns v0.0.5/go.mod h1:SpkAiCQRtJ6TvvxPnOSyH3BMl6unz3xZlaprSwhNNJM=
 github.com/wk8/go-ordered-map/v2 v2.1.8 h1:5h/BUHu93oj4gIdvHHHGsScSTMijfx5PeYkE/fJgbpc=
 github.com/wk8/go-ordered-map/v2 v2.1.8/go.mod h1:5nJHM5DyteebpVlHnWMV0rPz6Zp7+xBAnxjb1X5vnTw=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
