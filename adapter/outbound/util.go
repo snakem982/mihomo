@@ -3,10 +3,8 @@ package outbound
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"net"
 	"net/netip"
-	"regexp"
 	"strconv"
 
 	"github.com/metacubex/mihomo/component/resolver"
@@ -34,23 +32,26 @@ func serializesSocksAddr(metadata *C.Metadata) []byte {
 	return bytes.Join(buf, nil)
 }
 
+func resolveIPWithResolver(ctx context.Context, host string, prefer C.DNSPrefer, r resolver.Resolver) (netip.Addr, error) {
+	switch prefer {
+	case C.IPv4Only:
+		return resolver.ResolveIPv4WithResolver(ctx, host, r)
+	case C.IPv6Only:
+		return resolver.ResolveIPv6WithResolver(ctx, host, r)
+	case C.IPv6Prefer:
+		return resolver.ResolveIPPrefer6WithResolver(ctx, host, r)
+	default:
+		return resolver.ResolveIPWithResolver(ctx, host, r)
+	}
+}
+
 func resolveUDPAddr(ctx context.Context, network, address string, prefer C.DNSPrefer) (*net.UDPAddr, error) {
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {
 		return nil, err
 	}
 
-	var ip netip.Addr
-	switch prefer {
-	case C.IPv4Only:
-		ip, err = resolver.ResolveIPv4WithResolver(ctx, host, resolver.ProxyServerHostResolver)
-	case C.IPv6Only:
-		ip, err = resolver.ResolveIPv6WithResolver(ctx, host, resolver.ProxyServerHostResolver)
-	case C.IPv6Prefer:
-		ip, err = resolver.ResolveIPPrefer6WithResolver(ctx, host, resolver.ProxyServerHostResolver)
-	default:
-		ip, err = resolver.ResolveIPWithResolver(ctx, host, resolver.ProxyServerHostResolver)
-	}
+	ip, err := resolveIPWithResolver(ctx, host, prefer, resolver.ProxyServerHostResolver)
 
 	if err != nil {
 		return nil, err
@@ -74,43 +75,4 @@ func safeConnClose(c net.Conn, err error) {
 	if err != nil && c != nil {
 		_ = c.Close()
 	}
-}
-
-var rateStringRegexp = regexp.MustCompile(`^(\d+)\s*([KMGT]?)([Bb])ps$`)
-
-func StringToBps(s string) uint64 {
-	if s == "" {
-		return 0
-	}
-
-	// when have not unit, use Mbps
-	if v, err := strconv.Atoi(s); err == nil {
-		return StringToBps(fmt.Sprintf("%d Mbps", v))
-	}
-
-	m := rateStringRegexp.FindStringSubmatch(s)
-	if m == nil {
-		return 0
-	}
-	var n uint64 = 1
-	switch m[2] {
-	case "T":
-		n *= 1000
-		fallthrough
-	case "G":
-		n *= 1000
-		fallthrough
-	case "M":
-		n *= 1000
-		fallthrough
-	case "K":
-		n *= 1000
-	}
-	v, _ := strconv.ParseUint(m[1], 10, 64)
-	n *= v
-	if m[3] == "b" {
-		// Bits, need to convert to bytes
-		n /= 8
-	}
-	return n
 }

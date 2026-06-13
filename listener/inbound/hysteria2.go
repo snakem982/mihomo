@@ -14,6 +14,8 @@ type Hysteria2Option struct {
 	Users                 map[string]string `inbound:"users,omitempty"`
 	Obfs                  string            `inbound:"obfs,omitempty"`
 	ObfsPassword          string            `inbound:"obfs-password,omitempty"`
+	ObfsMinPacketSize     int               `inbound:"obfs-min-packet-size,omitempty"`
+	ObfsMaxPacketSize     int               `inbound:"obfs-max-packet-size,omitempty"`
 	Certificate           string            `inbound:"certificate"`
 	PrivateKey            string            `inbound:"private-key"`
 	ClientAuthType        string            `inbound:"client-auth-type,omitempty"`
@@ -30,11 +32,47 @@ type Hysteria2Option struct {
 	UdpMTU                int               `inbound:"udp-mtu,omitempty"`
 	MuxOption             MuxOption         `inbound:"mux-option,omitempty"`
 
+	RealmOpts Hysteria2RealmOption `inbound:"realm-opts,omitempty"`
+
 	// quic-go special config
 	InitialStreamReceiveWindow     uint64 `inbound:"initial-stream-receive-window,omitempty"`
 	MaxStreamReceiveWindow         uint64 `inbound:"max-stream-receive-window,omitempty"`
 	InitialConnectionReceiveWindow uint64 `inbound:"initial-connection-receive-window,omitempty"`
 	MaxConnectionReceiveWindow     uint64 `inbound:"max-connection-receive-window,omitempty"`
+}
+
+type Hysteria2RealmOption struct {
+	Enable      bool     `inbound:"enable,omitempty"`
+	ServerURL   string   `inbound:"server-url,omitempty"`
+	Token       string   `inbound:"token,omitempty"`
+	RealmID     string   `inbound:"realm-id,omitempty"`
+	STUNServers []string `inbound:"stun-servers,omitempty"`
+
+	// for ServerURL
+	SNI            string   `inbound:"sni,omitempty"`
+	SkipCertVerify bool     `inbound:"skip-cert-verify,omitempty"`
+	Fingerprint    string   `inbound:"fingerprint,omitempty"`
+	Certificate    string   `inbound:"certificate,omitempty"`
+	PrivateKey     string   `inbound:"private-key,omitempty"`
+	ALPN           []string `inbound:"alpn,omitempty"`
+	Proxy          string   `inbound:"proxy,omitempty"`
+}
+
+func (o Hysteria2RealmOption) Build() LC.Hysteria2RealmOption {
+	return LC.Hysteria2RealmOption{
+		Enable:         o.Enable,
+		ServerURL:      o.ServerURL,
+		Token:          o.Token,
+		RealmID:        o.RealmID,
+		STUNServers:    o.STUNServers,
+		SNI:            o.SNI,
+		SkipCertVerify: o.SkipCertVerify,
+		Fingerprint:    o.Fingerprint,
+		Certificate:    o.Certificate,
+		PrivateKey:     o.PrivateKey,
+		ALPN:           o.ALPN,
+		Proxy:          o.Proxy,
+	}
 }
 
 func (o Hysteria2Option) Equal(config C.InboundConfig) bool {
@@ -62,6 +100,8 @@ func NewHysteria2(options *Hysteria2Option) (*Hysteria2, error) {
 			Users:                 options.Users,
 			Obfs:                  options.Obfs,
 			ObfsPassword:          options.ObfsPassword,
+			ObfsMinPacketSize:     options.ObfsMinPacketSize,
+			ObfsMaxPacketSize:     options.ObfsMaxPacketSize,
 			Certificate:           options.Certificate,
 			PrivateKey:            options.PrivateKey,
 			ClientAuthType:        options.ClientAuthType,
@@ -77,6 +117,7 @@ func NewHysteria2(options *Hysteria2Option) (*Hysteria2, error) {
 			BBRProfile:            options.BBRProfile,
 			UdpMTU:                options.UdpMTU,
 			MuxOption:             options.MuxOption.Build(),
+			RealmOpts:             options.RealmOpts.Build(),
 			// quic-go special config
 			InitialStreamReceiveWindow:     options.InitialStreamReceiveWindow,
 			MaxStreamReceiveWindow:         options.MaxStreamReceiveWindow,

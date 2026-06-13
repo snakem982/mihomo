@@ -86,6 +86,7 @@ func testInboundShadowSocks0(t *testing.T, inboundOptions inbound.ShadowSocksOpt
 	outboundOptions.Port = int(addrPort.Port())
 	outboundOptions.Password = password
 	outboundOptions.DialerForAPI = tunnel.NewDialer()
+	outboundOptions.TunnelForAPI = tunnel
 
 	out, err := outbound.NewShadowSocks(outboundOptions)
 	if !assert.NoError(t, err) {
@@ -165,6 +166,34 @@ func TestInboundShadowSocks_ShadowTlsv3(t *testing.T) {
 		PluginOpts: map[string]any{"host": realityDest, "password": shadowsocksPassword16, "fingerprint": tlsFingerprint, "version": 3},
 	}
 	testInboundShadowSocksShadowTls(t, inboundOptions, outboundOptions)
+}
+
+func TestInboundShadowSocks_SimpleObfs_Http(t *testing.T) {
+	inboundOptions := inbound.ShadowSocksOption{
+		SimpleObfs: inbound.SimpleObfs{
+			Enable: true,
+			Mode:   "http",
+		},
+	}
+	outboundOptions := outbound.ShadowSocksOption{
+		Plugin:     "obfs",
+		PluginOpts: map[string]any{"mode": "http", "host": realityDest},
+	}
+	testInboundShadowSocks(t, inboundOptions, outboundOptions, shadowsocksCipherShortLists, false)
+}
+
+func TestInboundShadowSocks_SimpleObfs_Tls(t *testing.T) {
+	inboundOptions := inbound.ShadowSocksOption{
+		SimpleObfs: inbound.SimpleObfs{
+			Enable: true,
+			Mode:   "tls",
+		},
+	}
+	outboundOptions := outbound.ShadowSocksOption{
+		Plugin:     "obfs",
+		PluginOpts: map[string]any{"mode": "tls", "host": realityDest},
+	}
+	testInboundShadowSocks(t, inboundOptions, outboundOptions, shadowsocksCipherShortLists, false)
 }
 
 func TestInboundShadowSocks_KcpTun(t *testing.T) {

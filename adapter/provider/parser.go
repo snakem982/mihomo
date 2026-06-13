@@ -37,13 +37,14 @@ type proxyProviderSchema struct {
 	DialerProxy   string           `provider:"dialer-proxy,omitempty"`
 	SizeLimit     int64            `provider:"size-limit,omitempty"`
 	Payload       []map[string]any `provider:"payload,omitempty"`
+	AgeSecretKey  string           `provider:"age-secret-key,omitempty"`
 
 	HealthCheck healthCheckSchema   `provider:"health-check,omitempty"`
 	Override    overrideSchema      `provider:"override,omitempty"`
 	Header      map[string][]string `provider:"header,omitempty"`
 }
 
-func ParseProxyProvider(name string, mapping map[string]any) (P.ProxyProvider, error) {
+func ParseProxyProvider(name string, mapping map[string]any, tunnel C.Tunnel) (P.ProxyProvider, error) {
 	decoder := structure.NewDecoder(structure.Option{TagName: "provider", WeaklyTypedInput: true})
 
 	schema := &proxyProviderSchema{
@@ -69,7 +70,7 @@ func ParseProxyProvider(name string, mapping map[string]any) (P.ProxyProvider, e
 	}
 	hc := NewHealthCheck([]C.Proxy{}, schema.HealthCheck.URL, uint(schema.HealthCheck.TestTimeout), hcInterval, schema.HealthCheck.Lazy, expectedStatus)
 
-	parser, err := NewProxiesParser(name, schema.Filter, schema.ExcludeFilter, schema.ExcludeType, schema.DialerProxy, schema.Override)
+	parser, err := NewProxiesParser(name, tunnel, schema.Filter, schema.ExcludeFilter, schema.ExcludeType, schema.DialerProxy, schema.Override, schema.AgeSecretKey)
 	if err != nil {
 		return nil, err
 	}

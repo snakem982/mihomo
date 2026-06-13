@@ -42,6 +42,7 @@ func testInboundHysteria2(t *testing.T, inboundOptions inbound.Hysteria2Option, 
 	outboundOptions.Port = int(addrPort.Port())
 	outboundOptions.Password = userUUID
 	outboundOptions.DialerForAPI = tunnel.NewDialer()
+	outboundOptions.TunnelForAPI = tunnel
 
 	out, err := outbound.NewHysteria2(outboundOptions)
 	if !assert.NoError(t, err) {
@@ -108,6 +109,21 @@ func TestInboundHysteria2_Salamander(t *testing.T) {
 	outboundOptions := outbound.Hysteria2Option{
 		Fingerprint:  tlsFingerprint,
 		Obfs:         "salamander",
+		ObfsPassword: userUUID,
+	}
+	testInboundHysteria2TLS(t, inboundOptions, outboundOptions)
+}
+
+func TestInboundHysteria2_Gecko(t *testing.T) {
+	inboundOptions := inbound.Hysteria2Option{
+		Certificate:  tlsCertificate,
+		PrivateKey:   tlsPrivateKey,
+		Obfs:         "gecko",
+		ObfsPassword: userUUID,
+	}
+	outboundOptions := outbound.Hysteria2Option{
+		Fingerprint:  tlsFingerprint,
+		Obfs:         "gecko",
 		ObfsPassword: userUUID,
 	}
 	testInboundHysteria2TLS(t, inboundOptions, outboundOptions)

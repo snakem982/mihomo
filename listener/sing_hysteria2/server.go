@@ -5,15 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/metacubex/mihomo/adapter/inbound"
-	"github.com/metacubex/mihomo/adapter/outbound"
 	"github.com/metacubex/mihomo/common/sockopt"
+	"github.com/metacubex/mihomo/common/utils"
 	"github.com/metacubex/mihomo/component/ca"
 	"github.com/metacubex/mihomo/component/ech"
+	"github.com/metacubex/mihomo/component/resolver"
 	C "github.com/metacubex/mihomo/constant"
 	LC "github.com/metacubex/mihomo/listener/config"
 	"github.com/metacubex/mihomo/listener/inner"
@@ -26,6 +28,7 @@ import (
 	"github.com/metacubex/http/httputil"
 	"github.com/metacubex/quic-go"
 	"github.com/metacubex/sing-quic/hysteria2"
+	"github.com/metacubex/sing-quic/hysteria2/realm"
 	E "github.com/metacubex/sing/common/exceptions"
 	"github.com/metacubex/tls"
 )
@@ -97,6 +100,8 @@ func New(config LC.Hysteria2Server, tunnel C.Tunnel, additions ...inbound.Additi
 	}
 
 	var salamanderPassword string
+	var geckoPassword string
+	var geckoMinPacketSize, geckoMaxPacketSize int
 	if len(config.Obfs) > 0 {
 		if config.ObfsPassword == "" {
 			return nil, errors.New("missing obfs password")
@@ -104,6 +109,10 @@ func New(config LC.Hysteria2Server, tunnel C.Tunnel, additions ...inbound.Additi
 		switch config.Obfs {
 		case hysteria2.ObfsTypeSalamander:
 			salamanderPassword = config.ObfsPassword
+		case hysteria2.ObfsTypeGecko:
+			geckoPassword = config.ObfsPassword
+			geckoMinPacketSize = config.ObfsMinPacketSize
+			geckoMaxPacketSize = config.ObfsMaxPacketSize
 		default:
 			return nil, fmt.Errorf("unknown obfs type: %s", config.Obfs)
 		}
@@ -146,6 +155,49 @@ func New(config LC.Hysteria2Server, tunnel C.Tunnel, additions ...inbound.Additi
 			return nil, E.New("unknown masquerade URL scheme: ", masqueradeURL.Scheme)
 		}
 	}
+	var realmOptions *realm.Options
+	if config.RealmOpts.Enable {
+		httpTLSClientConfig, err := ca.GetTLSConfig(ca.Option{
+			TLSConfig: &tls.Config{
+				ServerName:         config.RealmOpts.SNI,
+				InsecureSkipVerify: config.RealmOpts.SkipCertVerify,
+				NextProtos:         config.RealmOpts.ALPN,
+			},
+			Fingerprint: config.RealmOpts.Fingerprint,
+			Certificate: config.RealmOpts.Certificate,
+			PrivateKey:  config.RealmOpts.PrivateKey,
+		})
+		if err != nil {
+			return nil, err
+		}
+		realmOptions = &realm.Options{
+			ServerURL:   config.RealmOpts.ServerURL,
+			Token:       config.RealmOpts.Token,
+			RealmID:     config.RealmOpts.RealmID,
+			STUNServers: config.RealmOpts.STUNServers,
+			HTTPClient: &http.Client{Transport: &http.Transport{
+				DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+					return inner.HandleTcp(tunnel, address, config.RealmOpts.Proxy)
+				},
+				TLSClientConfig: httpTLSClientConfig,
+				// from http.DefaultTransport
+				ForceAttemptHTTP2:     true,
+				MaxIdleConns:          100,
+				IdleConnTimeout:       90 * time.Second,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+			}},
+			Resolver: func(ctx context.Context, host string, ipv4, ipv6 bool) ([]netip.Addr, error) {
+				if ipv4 && !ipv6 {
+					return resolver.LookupIPv4WithResolver(ctx, host, resolver.ProxyServerHostResolver)
+				} else if ipv6 && !ipv4 {
+					return resolver.LookupIPv4WithResolver(ctx, host, resolver.ProxyServerHostResolver)
+				}
+				return resolver.LookupIPWithResolver(ctx, host, resolver.ProxyServerHostResolver)
+			},
+			Logger: log.SingLogger,
+		}
+	}
 
 	if config.UdpMTU == 0 {
 		// "1200" from quic-go's MaxDatagramSize
@@ -163,9 +215,12 @@ func New(config LC.Hysteria2Server, tunnel C.Tunnel, additions ...inbound.Additi
 	service, err := hysteria2.NewService[string](hysteria2.ServiceOptions{
 		Context:               context.Background(),
 		Logger:                log.SingLogger,
-		SendBPS:               outbound.StringToBps(config.Up),
-		ReceiveBPS:            outbound.StringToBps(config.Down),
+		SendBPS:               utils.StringToBps(config.Up),
+		ReceiveBPS:            utils.StringToBps(config.Down),
 		SalamanderPassword:    salamanderPassword,
+		GeckoPassword:         geckoPassword,
+		GeckoMinPacketSize:    geckoMinPacketSize,
+		GeckoMaxPacketSize:    geckoMaxPacketSize,
 		TLSConfig:             tlsConfig,
 		QUICConfig:            quicConfig,
 		IgnoreClientBandwidth: config.IgnoreClientBandwidth,
@@ -173,6 +228,7 @@ func New(config LC.Hysteria2Server, tunnel C.Tunnel, additions ...inbound.Additi
 		Handler:               h,
 		MasqueradeHandler:     masqueradeHandler,
 		UdpMTU:                config.UdpMTU,
+		RealmOptions:          realmOptions,
 		SetBBRCongestion: func(quicConn *quic.Conn) {
 			common.SetCongestionController(quicConn, "bbr", config.CWND, config.BBRProfile)
 		},

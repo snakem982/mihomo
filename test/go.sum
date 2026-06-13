@@ -13,6 +13,7 @@ github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da/go.mod h1:eHEWzANqSi
 github.com/andybalholm/brotli v1.0.5 h1:8uQZIdzKmjc/iuPu7O2ioW48L81FgatrcpfFmiq/cCs=
 github.com/andybalholm/brotli v1.0.5/go.mod h1:fO7iG3H7G2nSZ7m0zPUDn85XEX2GTukHGRSepvi9Eig=
 github.com/andybalholm/brotli v1.0.6/go.mod h1:fO7iG3H7G2nSZ7m0zPUDn85XEX2GTukHGRSepvi9Eig=
+github.com/andybalholm/brotli v1.1.1/go.mod h1:05ib4cKhjx3OQYUY22hTVd34Bc8upXjOLL2rKwwZBoA=
 github.com/bahlo/generic-list-go v0.2.0 h1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=
 github.com/bahlo/generic-list-go v0.2.0/go.mod h1:2KvAjgMlE5NNynlg/5iLrrCCZ2+5xWbdbCW3pNTGyYg=
 github.com/blang/semver v3.5.1+incompatible/go.mod h1:kRBLl5iJ+tD4TcOOxsy/0fnwebNt5EWlYSAyrTnjyyk=
@@ -143,6 +144,7 @@ github.com/metacubex/quic-go v0.59.1-0.20260112033758-aa29579f2001/go.mod h1:oNz
 github.com/metacubex/quic-go v0.59.1-0.20260128071132-0f3233b973af/go.mod h1:oNzMrmylS897M3zSMuapIdwSwfq6F2qW01Z3NhVRJhk=
 github.com/metacubex/quic-go v0.59.1-0.20260213014310-4df8f0de5b56/go.mod h1:oNzMrmylS897M3zSMuapIdwSwfq6F2qW01Z3NhVRJhk=
 github.com/metacubex/quic-go v0.59.1-0.20260413153657-53bb22f2c306/go.mod h1:oNzMrmylS897M3zSMuapIdwSwfq6F2qW01Z3NhVRJhk=
+github.com/metacubex/quic-go v0.59.1-0.20260520020949-fcd18c7b6ace/go.mod h1:2YEQEvFrZ5V76oynMBDTlN+4fdnSHCa2uNJxv3cm1HU=
 github.com/metacubex/sing-quic v0.0.0-20231130141855-0022295e524b h1:7XXoEePvxfkQN9b2wB8UXU3uzb9uL8syEFF7A9VAKKQ=
 github.com/metacubex/sing-quic v0.0.0-20231130141855-0022295e524b/go.mod h1:Gu5/zqZDd5G1AUtoV2yjAPWOEy7zwbU2DBUjdxJh0Kw=
 github.com/metacubex/sing-quic v0.0.0-20250523120938-f1a248e5ec7f/go.mod h1:JPTpf7fpnojsSuwRJExhSZSy63pVbp3VM39+zj+sAJM=
@@ -151,6 +153,7 @@ github.com/metacubex/sing-quic v0.0.0-20251004051927-c45ee18473bb/go.mod h1:JK4+
 github.com/metacubex/sing-quic v0.0.0-20251217080445-b15217cb57f3/go.mod h1:fAyoc/8IFK1yJp8meJvPNyGk7ZnKG1vmNaTwYx6NHA4=
 github.com/metacubex/sing-quic v0.0.0-20260112044712-65d17608159e/go.mod h1:+lgKTd52xAarGtqugALISShyw4KxnoEpYe2u0zJh26w=
 github.com/metacubex/sing-quic v0.0.0-20260414034501-3ea3410d197a/go.mod h1:6ayFGfzzBE85csgQkM3gf4neFq6s0losHlPRSxY+nuk=
+github.com/metacubex/sing-quic v0.0.0-20260527143057-68e10a6afdc3/go.mod h1:6ayFGfzzBE85csgQkM3gf4neFq6s0losHlPRSxY+nuk=
 github.com/metacubex/sing-shadowsocks v0.2.5 h1:O2RRSHlKGEpAVG/OHJQxyHqDy8uvvdCW/oW2TDBOIhc=
 github.com/metacubex/sing-shadowsocks v0.2.5/go.mod h1:Xz2uW9BEYGEoA8B4XEpoxt7ERHClFCwsMAvWaruoyMo=
 github.com/metacubex/sing-shadowsocks v0.2.11-0.20250531133822-e545de386d4c/go.mod h1:MtRM0ZZjR0kaDOzy9zWSt6/4/UlrnsNBq+1FNAF4vBk=
@@ -174,6 +177,7 @@ github.com/metacubex/sing-tun v0.4.15/go.mod h1:L/TjQY5JEGy8nvsuYmy/XgMFMCPiF0+A
 github.com/metacubex/sing-tun v0.4.16/go.mod h1:L/TjQY5JEGy8nvsuYmy/XgMFMCPiF0+AWSFCYfS6r9w=
 github.com/metacubex/sing-tun v0.4.17/go.mod h1:L/TjQY5JEGy8nvsuYmy/XgMFMCPiF0+AWSFCYfS6r9w=
 github.com/metacubex/sing-tun v0.4.18/go.mod h1:g4I/JNplDBhXLF+aQWgFbhNeJPSXQOWS9HvLeNvkgeA=
+github.com/metacubex/sing-tun v0.4.20/go.mod h1:g4I/JNplDBhXLF+aQWgFbhNeJPSXQOWS9HvLeNvkgeA=
 github.com/metacubex/sing-vmess v0.1.9-0.20230921005247-a0488d7dac74 h1:FtupiyFkaVjFvRa7B/uDtRWg5BNsoyPC9MTev3sDasY=
 github.com/metacubex/sing-vmess v0.1.9-0.20230921005247-a0488d7dac74/go.mod h1:8EWBZpc+qNvf5gmvjAtMHK1/DpcWqzfcBL842K00BsM=
 github.com/metacubex/sing-vmess v0.2.2/go.mod h1:CVDNcdSLVYFgTHQlubr88d8CdqupAUDqLjROos+H9xk=
@@ -182,6 +186,7 @@ github.com/metacubex/sing-vmess v0.2.5/go.mod h1:AwtlzUgf8COe9tRYAKqWZ+leDH7p5U9
 github.com/metacubex/sing-wireguard v0.0.0-20231001110902-321836559170 h1:DBGA0hmrP4pVIwLiXUONdphjcppED+plmVaKf1oqkwk=
 github.com/metacubex/sing-wireguard v0.0.0-20231001110902-321836559170/go.mod h1:/VbJfbdLnANE+SKXyMk/96sTRrD4GdFLh5mkegqqFcY=
 github.com/metacubex/sing-wireguard v0.0.0-20250503063753-2dc62acc626f/go.mod h1:jpAkVLPnCpGSfNyVmj6Cq4YbuZsFepm/Dc+9BAOcR80=
+github.com/metacubex/sing-wireguard v0.0.0-20260520151737-7e7c7c1b854c/go.mod h1:eQZDJTx+IH3k4mXqaOJ3VJ9h9ZqOl60F7TLi5wAU51Q=
 github.com/miekg/dns v1.1.57 h1:Jzi7ApEIzwEPLHWRcafCN9LZSBbqQpxjt/wpgvg7wcM=
 github.com/miekg/dns v1.1.57/go.mod h1:uqRjCRUuEAA6qsOiJvDd+CFo/vW+y5WR6SNmHE55hZk=
 github.com/miekg/dns v1.1.63/go.mod h1:6NGHfjhpmr5lt3XPLuyfDJi5AXbNIPM9PY6H6sF1Nfs=
@@ -209,6 +214,7 @@ github.com/oschwald/maxminddb-golang v1.12.0 h1:9FnTOD0YOhP7DGxGsq4glzpGy5+w7pq5
 github.com/oschwald/maxminddb-golang v1.12.0/go.mod h1:q0Nob5lTCqyQ8WT6FYgS1L7PXKVVbgiymefNwIjPzgY=
 github.com/pierrec/lz4/v4 v4.1.14 h1:+fL8AQEZtz/ijeNnpduH0bROTu0O3NZAlPjQxGn8LwE=
 github.com/pierrec/lz4/v4 v4.1.14/go.mod h1:gZWDp/Ze/IJXGXf23ltt2EXimqmTUXEy0GFuRQyBid4=
+github.com/pierrec/lz4/v4 v4.1.27/go.mod h1:EoQMVJgeeEOMsCqCzqFm2O0cJvljX2nGZjcRIPL34O4=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
 github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
@@ -296,6 +302,7 @@ github.com/vishvananda/netns v0.0.4/go.mod h1:SpkAiCQRtJ6TvvxPnOSyH3BMl6unz3xZla
 github.com/vishvananda/netns v0.0.5/go.mod h1:SpkAiCQRtJ6TvvxPnOSyH3BMl6unz3xZlaprSwhNNJM=
 github.com/wk8/go-ordered-map/v2 v2.1.8 h1:5h/BUHu93oj4gIdvHHHGsScSTMijfx5PeYkE/fJgbpc=
 github.com/wk8/go-ordered-map/v2 v2.1.8/go.mod h1:5nJHM5DyteebpVlHnWMV0rPz6Zp7+xBAnxjb1X5vnTw=
+github.com/xyproto/randomstring v1.0.5/go.mod h1:rgmS5DeNXLivK7YprL0pY+lTuhNQW3iGxZ18UQApw/E=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.2.1/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yusufpapurcu/wmi v1.2.3 h1:E1ctvB7uKFMOJw3fdOW32DwGE9I7t++CRUEMKvFoFiw=

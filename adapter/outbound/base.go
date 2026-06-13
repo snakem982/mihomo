@@ -177,7 +177,7 @@ func (b *Base) DialOptions() (opts []dialer.Option) {
 
 func (b *Base) ResolveUDP(ctx context.Context, metadata *C.Metadata) error {
 	if !metadata.Resolved() {
-		ip, err := resolver.ResolveIP(ctx, metadata.Host)
+		ip, err := resolveIPWithResolver(ctx, metadata.Host, b.prefer, resolver.DefaultResolver)
 		if err != nil {
 			return fmt.Errorf("can't resolve ip: %w", err)
 		}
@@ -202,6 +202,7 @@ type BasicOption struct {
 	// The following parameters are used internally, assign value by the structure decoder are disallowed
 	//
 	DialerForAPI C.Dialer `proxy:"-"` // the dialer used for API usage has higher priority than all the above configurations.
+	TunnelForAPI C.Tunnel `proxy:"-"`
 	ProviderName string   `proxy:"-"`
 }
 
@@ -209,12 +210,16 @@ func (b *BasicOption) NewDialer(opts []dialer.Option) C.Dialer {
 	cDialer := b.DialerForAPI
 	if cDialer == nil {
 		if b.DialerProxy != "" {
-			cDialer = proxydialer.NewByName(b.DialerProxy)
+			cDialer = proxydialer.NewByName(b.DialerProxy, b.NewTunnel())
 		} else {
 			cDialer = dialer.NewDialer(opts...)
 		}
 	}
 	return cDialer
+}
+
+func (b *BasicOption) NewTunnel() C.Tunnel {
+	return b.TunnelForAPI
 }
 
 type conn struct {
