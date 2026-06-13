@@ -23,17 +23,16 @@ import (
 )
 
 const (
-	MaxFeatureSize = 27
+	MaxFeatureSize = 28
 )
 
 var (
 	smartModel  *WeightModel
 	reloadModel = singleflight.Group[bool]{StoreResult: false}
 	modelOnce   sync.Once
+	lgbmUrl     string
 
-	asnNumberRegex = regexp.MustCompile(`^(\d+)`)
-	domainRegex    = regexp.MustCompile(`([a-zA-Z0-9-]+)(\.[a-zA-Z0-9-]+)+$`)
-	ipv4Regex      = regexp.MustCompile(`^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$`)
+	domainRegex = regexp.MustCompile(`([a-zA-Z0-9-]+)(\.[a-zA-Z0-9-]+)+$`)
 
 	// 常见ASN提供商类型分类
 	asnCategories = map[string]int{
@@ -395,6 +394,34 @@ var (
 	}
 )
 
+type domainKeywordEntry struct {
+	keyword  string
+	category int
+}
+
+var allDomainKeywords []domainKeywordEntry
+
+func init() {
+	total := len(dnsServiceKeywords) + len(apiServiceKeywords) + len(gameKeywords) +
+		len(communicationKeywords) + len(streamingKeywords)
+	allDomainKeywords = make([]domainKeywordEntry, 0, total)
+	for _, kw := range dnsServiceKeywords {
+		allDomainKeywords = append(allDomainKeywords, domainKeywordEntry{kw, 6})
+	}
+	for _, kw := range apiServiceKeywords {
+		allDomainKeywords = append(allDomainKeywords, domainKeywordEntry{kw, 5})
+	}
+	for _, kw := range gameKeywords {
+		allDomainKeywords = append(allDomainKeywords, domainKeywordEntry{kw, 3})
+	}
+	for _, kw := range communicationKeywords {
+		allDomainKeywords = append(allDomainKeywords, domainKeywordEntry{kw, 4})
+	}
+	for _, kw := range streamingKeywords {
+		allDomainKeywords = append(allDomainKeywords, domainKeywordEntry{kw, 2})
+	}
+}
+
 type WeightModel struct {
 	model      *leaves.Ensemble
 	transforms *FeatureTransforms
@@ -507,8 +534,19 @@ func ReloadModel() {
 	}
 }
 
+func SetLgbmUrl(newUrl string) {
+	lgbmUrl = newUrl
+}
+
+func LgbmUrl() string {
+	return lgbmUrl
+}
+
 func downloadModel(path string) (err error) {
-	modelUrl := GetModelDownloadURL()
+	modelUrl := LgbmUrl()
+	if modelUrl == "" {
+		modelUrl = GetModelDownloadURL()
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*90)
 	defer cancel()
@@ -616,20 +654,21 @@ func prepareFeatures(input *smart.ModelInput) []float64 {
 	}
 
 	// 核心性能指标
-	features = append(features, float64(input.Success))                   // 成功次数
-	features = append(features, float64(input.Failure))                   // 失败次数
-	features = append(features, math.Log1p(float64(input.ConnectTime)))   // 连接时间（对数变换）
-	features = append(features, math.Log1p(float64(input.Latency)))       // 延迟（对数变换）
-	features = append(features, math.Log1p(uploadMB))                     // 上传流量MB
-	features = append(features, math.Log1p(input.HistoryUploadTotal))     // 历史上传流量
-	features = append(features, math.Log1p(maxUploadRateKB))              // 最大上传速率
-	features = append(features, math.Log1p(input.HistoryMaxUploadRate))   // 历史最大上传速率
-	features = append(features, math.Log1p(downloadMB))                   // 下载流量MB
-	features = append(features, math.Log1p(input.HistoryDownloadTotal))   // 历史下载流量
-	features = append(features, math.Log1p(maxDownloadRateKB))            // 最大下载速率
-	features = append(features, math.Log1p(input.HistoryMaxDownloadRate)) // 历史最大下载速率
-	features = append(features, math.Log1p(durationMinutes))              // 连接持续时间分钟（对数变换）
-	features = append(features, math.Log1p(lastUsedSeconds))              // 上次使用至今秒数（对数变换）
+	features = append(features, float64(input.Success))                      // 成功次数
+	features = append(features, float64(input.Failure))                      // 失败次数
+	features = append(features, math.Log1p(float64(input.ConnectTime)))      // 连接时间（对数变换）
+	features = append(features, math.Log1p(float64(input.Latency)))          // 延迟（对数变换）
+	features = append(features, math.Log1p(uploadMB))                        // 上传流量MB
+	features = append(features, math.Log1p(input.HistoryUploadTotal))        // 历史上传流量
+	features = append(features, math.Log1p(maxUploadRateKB))                 // 最大上传速率
+	features = append(features, math.Log1p(input.HistoryMaxUploadRate))      // 历史最大上传速率
+	features = append(features, math.Log1p(downloadMB))                      // 下载流量MB
+	features = append(features, math.Log1p(input.HistoryDownloadTotal))      // 历史下载流量
+	features = append(features, math.Log1p(maxDownloadRateKB))               // 最大下载速率
+	features = append(features, math.Log1p(input.HistoryMaxDownloadRate))    // 历史最大下载速率
+	features = append(features, math.Log1p(durationMinutes))                 // 连接持续时间分钟（对数变换）
+	features = append(features, math.Log1p(input.HistoryConnectionDuration)) // 历史平均连接时间（对数变换）
+	features = append(features, math.Log1p(lastUsedSeconds))                 // 上次使用至今秒数（对数变换）
 
 	// 网络协议特征
 	features = append(features, boolToFloat(input.IsUDP)) // 是否UDP协议
@@ -713,8 +752,16 @@ func extractASNFeature(asnInfo string) int {
 	}
 
 	// 2. 尝试提取ASN号码并进行简单分类
-	if matches := asnNumberRegex.FindStringSubmatch(asnInfo); len(matches) > 1 {
-		if asnNum, err := strconv.Atoi(matches[1]); err == nil {
+	s := asnInfo
+	if len(s) >= 2 && s[0] == 'a' && s[1] == 's' {
+		s = s[2:]
+	}
+	j := 0
+	for j < len(s) && s[j] >= '0' && s[j] <= '9' {
+		j++
+	}
+	if j > 0 {
+		if asnNum, err := strconv.Atoi(s[:j]); err == nil {
 			// 粗略分类ASN号码范围
 			switch {
 			case asnNum < 1000:
@@ -770,43 +817,17 @@ func extractDomainTypeFeature(host string) int {
 	host = strings.ToLower(host)
 
 	// 1. 检查是否为IP地址形式
-	if strings.Contains(host, "[") || (strings.Count(host, ".") == 3 &&
-		ipv4Regex.MatchString(host)) {
+	if strings.Contains(host, "[") {
+		return 1
+	}
+	if _, err := netip.ParseAddr(host); err == nil {
 		return 1
 	}
 
-	// 2.1 DNS服务优先 - 基础设施服务
-	for _, keyword := range dnsServiceKeywords {
-		if strings.Contains(host, keyword) {
-			return 6
-		}
-	}
-
-	// 2.2 API服务 - 开发和基础设施服务
-	for _, keyword := range apiServiceKeywords {
-		if strings.Contains(host, keyword) {
-			return 5
-		}
-	}
-
-	// 2.3 游戏服务 - 高延迟敏感
-	for _, keyword := range gameKeywords {
-		if strings.Contains(host, keyword) {
-			return 3
-		}
-	}
-
-	// 2.4 通讯/会议服务 - 实时性要求高
-	for _, keyword := range communicationKeywords {
-		if strings.Contains(host, keyword) {
-			return 4
-		}
-	}
-
-	// 2.5 流媒体/视频服务 - 带宽敏感
-	for _, keyword := range streamingKeywords {
-		if strings.Contains(host, keyword) {
-			return 2
+	// 2. 关键词匹配（优先级：DNS>API>游戏>通信>流媒体）
+	for _, entry := range allDomainKeywords {
+		if strings.Contains(host, entry.keyword) {
+			return entry.category
 		}
 	}
 
@@ -991,24 +1012,25 @@ func boolToFloat(b bool) float64 {
 	return 0.0
 }
 
-func CreateModelInputFromStatsRecord(atomicRecord *smart.AtomicStatsRecord, metadata *C.Metadata, uploadTotal, downloadTotal, maxUploadRate, maxDownloadRate float64, wildcardTarget string) *smart.ModelInput {
+func CreateModelInputFromStatsRecord(atomicRecord *smart.AtomicStatsRecord, metadata *C.Metadata, uploadTotal, downloadTotal, maxUploadRate, maxDownloadRate, connectionDuration float64, wildcardTarget string) *smart.ModelInput {
 	input := &smart.ModelInput{
-		Success:                atomicRecord.Get("success").(int64),
-		Failure:                atomicRecord.Get("failure").(int64),
-		ConnectTime:            atomicRecord.Get("connectTime").(int64),
-		Latency:                atomicRecord.Get("latency").(int64),
-		UploadTotal:            uploadTotal,
-		HistoryUploadTotal:     atomicRecord.Get("uploadTotal").(float64),
-		MaxuploadRate:          maxUploadRate,
-		HistoryMaxUploadRate:   atomicRecord.Get("maxUploadRate").(float64),
-		DownloadTotal:          downloadTotal,
-		HistoryDownloadTotal:   atomicRecord.Get("downloadTotal").(float64),
-		MaxdownloadRate:        maxDownloadRate,
-		HistoryMaxDownloadRate: atomicRecord.Get("maxDownloadRate").(float64),
-		ConnectionDuration:     atomicRecord.Get("duration").(float64),
-		LastUsed:               atomicRecord.Get("lastUsed").(int64),
-		IsUDP:                  metadata.NetWork == C.UDP,
-		IsTCP:                  metadata.NetWork == C.TCP,
+		Success:                   atomicRecord.Get("success").(int64),
+		Failure:                   atomicRecord.Get("failure").(int64),
+		ConnectTime:               atomicRecord.Get("connectTime").(int64),
+		Latency:                   atomicRecord.Get("latency").(int64),
+		UploadTotal:               uploadTotal,
+		HistoryUploadTotal:        atomicRecord.Get("uploadTotal").(float64),
+		MaxuploadRate:             maxUploadRate,
+		HistoryMaxUploadRate:      atomicRecord.Get("maxUploadRate").(float64),
+		DownloadTotal:             downloadTotal,
+		HistoryDownloadTotal:      atomicRecord.Get("downloadTotal").(float64),
+		MaxdownloadRate:           maxDownloadRate,
+		HistoryMaxDownloadRate:    atomicRecord.Get("maxDownloadRate").(float64),
+		HistoryConnectionDuration: atomicRecord.Get("duration").(float64),
+		ConnectionDuration:        connectionDuration,
+		LastUsed:                  atomicRecord.Get("lastUsed").(int64),
+		IsUDP:                     metadata.NetWork == C.UDP,
+		IsTCP:                     metadata.NetWork == C.TCP,
 	}
 
 	if metadata.DstIPASN == "unknown" {

@@ -2,10 +2,10 @@ package route
 
 import (
 	"bytes"
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
-	"github.com/metacubex/mihomo/tunnel"
 	"net"
 	"os"
 	"path/filepath"
@@ -13,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/metacubex/mihomo/tunnel"
 
 	"github.com/metacubex/mihomo/adapter/inbound"
 	"github.com/metacubex/mihomo/common/utils"
@@ -63,6 +65,7 @@ type Config struct {
 	TLSAddr        string
 	UnixAddr       string
 	PipeAddr       string
+	RoutingMark    int
 	Secret         string
 	Certificate    string
 	PrivateKey     string
@@ -131,6 +134,7 @@ func router(isDebug bool, secret string, dohServer string, cors Cors) *chi.Mux {
 		r.Mount("/providers/rules", ruleProviderRouter())
 		r.Mount("/cache", cacheRouter())
 		r.Mount("/dns", dnsRouter())
+		r.Mount("/storage", storageRouter())
 		addExternalRouters(r)
 	})
 
@@ -141,34 +145,15 @@ func router(isDebug bool, secret string, dohServer string, cors Cors) *chi.Mux {
 	return r
 }
 
-func StartByPandora(isDebug bool, secret string) (serverAddr string) {
-	l, err := inbound.Listen("tcp", "127.0.0.1:9966")
-	if err != nil {
-		log.Errorln("External controller listen error: %s", err)
-
-		l, err = inbound.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			panic(err)
-		}
-	}
-	serverAddr = l.Addr().String()
-	log.Infoln("Pandora-Box Restful Api Listening At: %s", serverAddr)
-
-	go func() {
-		if err = http.Serve(l, router(isDebug, secret, "", Cors{})); err != nil {
-			log.Errorln("External controller serve error: %s", err)
-		}
-	}()
-
-	return
-}
-
 func StartByPandoraBox(host string, port int, secret string, cors Cors) (serverAddr string) {
-	l, err := inbound.Listen("tcp", fmt.Sprintf("%s:%d", host, port))
+
+	lc := inbound.NewListenConfig()
+	lc.SetRouteMark(0)
+	l, err := lc.Listen(context.Background(), "tcp", fmt.Sprintf("%s:%d", host, port))
 	if err != nil {
 		log.Errorln("External controller listen error: %s", err)
 
-		l, err = inbound.Listen("tcp", host+":0")
+		l, err = lc.Listen(context.Background(), "tcp", host+":0")
 		if err != nil {
 			panic(err)
 		}
@@ -183,6 +168,34 @@ func StartByPandoraBox(host string, port int, secret string, cors Cors) (serverA
 	}()
 
 	return
+}
+
+func start(cfg *Config) {
+	// first stop existing server
+	if httpServer != nil {
+		_ = httpServer.Close()
+		httpServer = nil
+	}
+
+	// handle addr
+	if len(cfg.Addr) > 0 {
+		lc := inbound.NewListenConfig()
+		lc.SetRouteMark(cfg.RoutingMark)
+		l, err := lc.Listen(context.Background(), "tcp", cfg.Addr)
+		if err != nil {
+			log.Errorln("External controller listen error: %s", err)
+			return
+		}
+		log.Infoln("RESTful API listening at: %s", l.Addr().String())
+
+		server := &http.Server{
+			Handler: router(cfg.IsDebug, cfg.Secret, cfg.DohServer, cfg.Cors),
+		}
+		httpServer = server
+		if err = server.Serve(l); err != nil {
+			log.Errorln("External controller serve error: %s", err)
+		}
+	}
 }
 
 func startTLS(cfg *Config) {
@@ -200,7 +213,9 @@ func startTLS(cfg *Config) {
 			return
 		}
 
-		l, err := inbound.Listen("tcp", cfg.TLSAddr)
+		lc := inbound.NewListenConfig()
+		lc.SetRouteMark(cfg.RoutingMark)
+		l, err := lc.Listen(context.Background(), "tcp", cfg.TLSAddr)
 		if err != nil {
 			log.Errorln("External controller tls listen error: %s", err)
 			return
@@ -272,7 +287,9 @@ func startUnix(cfg *Config) {
 		// should be used to delete the socket file prior to calling bind with the same path.
 		_ = syscall.Unlink(addr)
 
-		l, err := inbound.Listen("unix", addr)
+		lc := inbound.NewListenConfig()
+		lc.SetRouteMark(0) // don't set route mark for unix socket
+		l, err := lc.Listen(context.Background(), "unix", addr)
 		if err != nil {
 			log.Errorln("External controller unix listen error: %s", err)
 			return

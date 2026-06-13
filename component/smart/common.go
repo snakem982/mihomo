@@ -3,16 +3,15 @@ package smart
 import (
 	"errors"
 	"math"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/metacubex/bbolt"
 	"github.com/metacubex/mihomo/common/atomic"
 	"github.com/metacubex/mihomo/common/cmd"
-	"github.com/metacubex/mihomo/common/lru"
 	"github.com/metacubex/mihomo/log"
 
 	"golang.org/x/net/publicsuffix"
@@ -47,6 +46,10 @@ const (
 	MaxBatchThreshLimit = 300
 	MinBatchThreshLimit = 50
 
+	RecordExpiredTime = 7 * 24 * time.Hour
+
+	HostFailureNodeTTL = 24 * time.Hour
+
 	AllowedWeight = 0.4
 
 	RankMostUsed   = "MostUsed"
@@ -66,16 +69,6 @@ var (
 		LastMemoryUsage    float64
 		mutex              sync.RWMutex
 	}
-
-	targetCache *lru.LruCache[string, string]
-
-	unwrapCache *lru.LruCache[string, UnwrapMap]
-
-	recordCache *lru.LruCache[string, *AtomicStatsRecord]
-
-	dbResultCache *lru.LruCache[string, map[string][]byte]
-
-	blockedNodesCache *lru.LruCache[string, map[string]bool]
 )
 
 var CdnASNs = map[string]bool{
@@ -125,91 +118,6 @@ type (
 		Node   string
 		Data   []byte
 	}
-
-	StatsRecord struct {
-		Success            int64              `json:"success"`
-		Failure            int64              `json:"failure"`
-		ConnectTime        int64              `json:"connect_time"`
-		Latency            int64              `json:"latency"`
-		LastUsed           int64              `json:"last_used"`
-		Weights            map[string]float64 `json:"weights"`
-		UploadTotal        float64            `json:"upload_total"`
-		DownloadTotal      float64            `json:"download_total"`
-		MaxUploadRate      float64            `json:"max_upload_rate"`
-		MaxDownloadRate    float64            `json:"max_download_rate"`
-		ConnectionDuration float64            `json:"connection_duration"`
-	}
-
-	ModelInput struct {
-		// 节点历史性能指标
-		Success     int64 // 成功次数
-		Failure     int64 // 失败次数
-		ConnectTime int64 // 连接时间(毫秒)
-		Latency     int64 // 延迟(毫秒)
-
-		// 上传相关特征
-		UploadTotal          float64 // 上传流量(字节)
-		HistoryUploadTotal   float64 // 历史上传流量(字节)
-		MaxuploadRate        float64 // 最大上传速率(字节/秒)
-		HistoryMaxUploadRate float64 // 历史最大上传速率(字节/秒)
-
-		// 下载相关特征
-		DownloadTotal          float64 // 下载流量(字节)
-		HistoryDownloadTotal   float64 // 历史下载流量(字节)
-		MaxdownloadRate        float64 // 最大下载速率(字节/秒)
-		HistoryMaxDownloadRate float64 // 历史最大下载速率(字节/秒)
-
-		ConnectionDuration float64 // 连接持续时间(毫秒)
-		LastUsed           int64   // 上次使用时间
-
-		// 连接特征
-		IsUDP bool // 是否UDP连接
-		IsTCP bool // 是否TCP连接
-
-		// 元数据特征
-		DestIPASN string   // 目标IP的ASN信息
-		Host      string   // 域名信息
-		DestIP    string   // 目标IP地址
-		DestPort  uint16   // 目标端口
-		DestGeoIP []string // 目标IP的地理位置信息
-
-		GroupName string // 策略组名称
-		NodeName  string // 节点名称
-	}
-
-	NodeState struct {
-		Name           string  `json:"name"`
-		FailureCount   int     `json:"failure_count"`
-		LastFailure    int64   `json:"last_failure"`
-		BlockedUntil   int64   `json:"blocked_until"`
-		Degraded       bool    `json:"degraded"`
-		DegradedFactor float64 `json:"degraded_factor"`
-	}
-
-	NodesWithWeights struct {
-		Nodes   []string  `json:"nodes"`
-		Weights []float64 `json:"weights"`
-	}
-
-	NodeWithWeight struct {
-		Node   string
-		Weight float64
-	}
-
-	PrefetchMap struct {
-		TCP         NodesWithWeights `json:"tcp,omitempty"`
-		UDP         NodesWithWeights `json:"udp,omitempty"`
-		RefTCP      string           `json:"ref_tcp,omitempty"`
-		RefUDP      string           `json:"ref_udp,omitempty"`
-		UpdatedTime int64            `json:"updated_time,omitempty"`
-	}
-
-	UnwrapMap struct {
-		TCP    []string `json:"tcp,omitempty"`
-		UDP    []string `json:"udp,omitempty"`
-		RefTCP string   `json:"ref_tcp,omitempty"`
-		RefUDP string   `json:"ref_udp,omitempty"`
-	}
 )
 
 func NewStore(newdb *bbolt.DB) *Store {
@@ -221,16 +129,22 @@ func NewStore(newdb *bbolt.DB) *Store {
 
 // 格式化数据库键
 func FormatDBKey(parts ...string) string {
-	elements := make([]string, 0, len(parts)+1)
-	elements = append(elements, "smart")
-
+	size := 5
 	for _, part := range parts {
 		if part != "" {
-			elements = append(elements, part)
+			size += 1 + len(part)
 		}
 	}
-
-	return strings.Join(elements, "/")
+	var b strings.Builder
+	b.Grow(size)
+	b.WriteString("smart")
+	for _, part := range parts {
+		if part != "" {
+			b.WriteByte('/')
+			b.WriteString(part)
+		}
+	}
+	return b.String()
 }
 
 func formatOperationKey(op *StoreOperation) string {
@@ -250,6 +164,32 @@ func formatOperationKey(op *StoreOperation) string {
 	}
 }
 
+func isHexRandom(s string) bool {
+	if len(s) < 8 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
+func isValidLabel(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
+			return false
+		}
+	}
+	return true
+}
+
 // 获取有效顶级域名加一二级域名并使用通配符处理
 func GetEffectiveTarget(host string, dstIP string) string {
 	if host == "" {
@@ -257,9 +197,6 @@ func GetEffectiveTarget(host string, dstIP string) string {
 	}
 
 	h := strings.ToLower(host)
-
-	validLabel := regexp.MustCompile(`^[a-z0-9-]+$`)
-	hexRandom := regexp.MustCompile(`^[0-9a-f]{8,}$`)
 
 	compute := func() string {
 		parts := strings.Split(h, ".")
@@ -288,7 +225,7 @@ func GetEffectiveTarget(host string, dstIP string) string {
 
 		if strings.Contains(last, "-") {
 			last = "*"
-		} else if hexRandom.MatchString(last) {
+		} else if isHexRandom(last) {
 			last = "*"
 		} else {
 			letters := 0
@@ -307,7 +244,7 @@ func GetEffectiveTarget(host string, dstIP string) string {
 			}
 		}
 
-		if !validLabel.MatchString(last) || strings.HasPrefix(last, "-") || strings.HasSuffix(last, "-") {
+		if !isValidLabel(last) || strings.HasPrefix(last, "-") || strings.HasSuffix(last, "-") {
 			last = "*"
 		}
 
@@ -351,6 +288,9 @@ func GetEffectiveTarget(host string, dstIP string) string {
 					}
 				}
 			}
+
+			targetCache.Set(h, result)
+			return result
 		}
 	}
 
@@ -482,25 +422,25 @@ func (s *Store) AppendToGlobalQueue(operations ...StoreOperation) {
 	var snapshot []StoreOperation
 
 	globalOperationQueue.Update(func(old []StoreOperation) []StoreOperation {
-		opMap := make(map[string]*StoreOperation)
+		opMap := make(map[string]StoreOperation, len(old)+len(operations))
 
 		for i := range old {
 			key := formatOperationKey(&old[i])
 			if key != "" {
-				opMap[key] = &old[i]
+				opMap[key] = old[i]
 			}
 		}
 
 		for i := range operations {
 			key := formatOperationKey(&operations[i])
 			if key != "" {
-				opMap[key] = &operations[i]
+				opMap[key] = operations[i]
 			}
 		}
 
 		newQueue := make([]StoreOperation, 0, len(opMap))
 		for _, op := range opMap {
-			newQueue = append(newQueue, *op)
+			newQueue = append(newQueue, op)
 		}
 
 		threshold := GetBatchSaveThreshold()
@@ -508,7 +448,7 @@ func (s *Store) AppendToGlobalQueue(operations ...StoreOperation) {
 			shouldFlush = true
 			snapshot = make([]StoreOperation, len(newQueue))
 			copy(snapshot, newQueue)
-			newQueue = make([]StoreOperation, 0, threshold)
+			return make([]StoreOperation, 0, threshold)
 		}
 
 		return newQueue
@@ -528,11 +468,34 @@ func replaceGlobalQueue(newQueue []StoreOperation) {
 }
 
 func getGlobalQueueSnapshot() []StoreOperation {
-	return globalOperationQueue.Load()
+	current := globalOperationQueue.Load()
+	snapshot := make([]StoreOperation, len(current))
+	copy(snapshot, current)
+	return snapshot
 }
 
 func updateGlobalQueue(updateFunc func([]StoreOperation) []StoreOperation) {
 	globalOperationQueue.Update(updateFunc)
+}
+
+func drainGlobalQueue(force bool) []StoreOperation {
+	threshold := GetBatchSaveThreshold()
+	var snapshot []StoreOperation
+
+	globalOperationQueue.Update(func(current []StoreOperation) []StoreOperation {
+		if len(current) == 0 {
+			return current
+		}
+		if !force && len(current) < threshold {
+			return current
+		}
+
+		snapshot = make([]StoreOperation, len(current))
+		copy(snapshot, current)
+		return make([]StoreOperation, 0, threshold)
+	})
+
+	return snapshot
 }
 
 func removeFromGlobalQueue(shouldRemove func(StoreOperation) bool) {
@@ -572,13 +535,14 @@ func filterQueueByGroup(group, config string) {
 }
 
 func removeNodesFromQueue(group, config string, nodes []string) {
+	nodeSet := make(map[string]struct{}, len(nodes))
+	for _, n := range nodes {
+		nodeSet[n] = struct{}{}
+	}
 	removeFromGlobalQueue(func(op StoreOperation) bool {
 		if op.Group == group && op.Config == config {
-			for _, node := range nodes {
-				if op.Node == node {
-					return true
-				}
-			}
+			_, found := nodeSet[op.Node]
+			return found
 		}
 		return false
 	})
@@ -601,19 +565,23 @@ func (s *Store) FlushByLevel(level string, config string, group string) error {
 	s.clearCache(level, config, group)
 
 	if level == "all" {
-		s.DBBatchDeletePrefix("smart", false)
+		s.DBBatchDeletePrefix([]string{"smart"}, false)
 	} else if level == "config" {
-		s.DBBatchDeletePrefix(FormatDBKey(KeyTypeStats, config), false)
-		s.DBBatchDeletePrefix(FormatDBKey(KeyTypeNode, config), false)
-		s.DBBatchDeletePrefix(FormatDBKey(KeyTypeRanking, config), false)
-		s.DBBatchDeletePrefix(FormatDBKey(KeyTypePrefetch, config), false)
-		s.DBBatchDeletePrefix(FormatDBKey(KeyTypeHostFailures, config), false)
+		s.DBBatchDeletePrefix([]string{
+			FormatDBKey(KeyTypeStats, config),
+			FormatDBKey(KeyTypeNode, config),
+			FormatDBKey(KeyTypeRanking, config),
+			FormatDBKey(KeyTypePrefetch, config),
+			FormatDBKey(KeyTypeHostFailures, config),
+		}, false)
 	} else if level == "group" {
-		s.DBBatchDeletePrefix(FormatDBKey(KeyTypeStats, config, group), false)
-		s.DBBatchDeletePrefix(FormatDBKey(KeyTypeNode, config, group), false)
-		s.DBBatchDeletePrefix(FormatDBKey(KeyTypeRanking, config, group), false)
-		s.DBBatchDeletePrefix(FormatDBKey(KeyTypePrefetch, config, group), false)
-		s.DBBatchDeletePrefix(FormatDBKey(KeyTypeHostFailures, config, group), false)
+		s.DBBatchDeletePrefix([]string{
+			FormatDBKey(KeyTypeStats, config, group),
+			FormatDBKey(KeyTypeNode, config, group),
+			FormatDBKey(KeyTypeRanking, config, group),
+			FormatDBKey(KeyTypePrefetch, config, group),
+			FormatDBKey(KeyTypeHostFailures, config, group),
+		}, false)
 	}
 
 	return nil
@@ -621,7 +589,7 @@ func (s *Store) FlushByLevel(level string, config string, group string) error {
 
 // 清空所有缓存
 func (s *Store) FlushAll() error {
-	log.Debugln("[SmartStore] Starting FlushAll, current queue length: %d", len(getGlobalQueueSnapshot()))
+	log.Debugln("[SmartStore] Starting FlushAll, current queue length: %d", len(globalOperationQueue.Load()))
 	err := s.FlushByLevel("all", "", "")
 	if err == nil {
 		log.Debugln("[SmartStore] All Smart data cleared")

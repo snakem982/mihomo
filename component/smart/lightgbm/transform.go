@@ -28,26 +28,27 @@ import (
 // 10=maxdownloadrate_kb
 // 11=history_maxdownloadrate_kb
 // 12=duration_minutes
-// 13=last_used_seconds
-// 14=is_udp
-// 15=is_tcp
-// 16=asn_feature
-// 17=country_feature
-// 18=address_feature
-// 19=port_feature
-// 20=traffic_ratio
-// 21=traffic_density
-// 22=connection_type_feature
-// 23=asn_hash
-// 24=host_hash
-// 25=ip_hash
-// 26=geoip_hash
+// 13=history_duration_minutes
+// 14=last_used_seconds
+// 15=is_udp
+// 16=is_tcp
+// 17=asn_feature
+// 18=country_feature
+// 19=address_feature
+// 20=port_feature
+// 21=traffic_ratio
+// 22=traffic_density
+// 23=connection_type_feature
+// 24=asn_hash
+// 25=host_hash
+// 26=ip_hash
+// 27=geoip_hash
 // ... (index=feature_name, one per line, up to MaxFeatureSize)
 // [/order]
 //
 // [definitions]
 // std_type=StandardScaler
-// std_features=2,3,4,5,6,7,8,9,10,11,12,13,20,21
+// std_features=2,3,4,5,6,7,8,9,10,11,12,13,21,22
 // std_mean=...comma separated float values...
 // std_scale=...comma separated float values...
 //
@@ -57,7 +58,7 @@ import (
 // robust_scale=...comma separated float values...
 // [/definitions]
 //
-// untransformed_features=14:is_udp,15:is_tcp,16:asn_feature,17:country_feature,18:address_feature,19:port_feature,22:connection_type_feature,23:asn_hash,24:host_hash,25:ip_hash,26:geoip_hash
+// untransformed_features=15:is_udp,16:is_tcp,17:asn_feature,18:country_feature,19:address_feature,20:port_feature,23:connection_type_feature,24:asn_hash,25:host_hash,26:ip_hash,27:geoip_hash
 // transform=true
 // [/transforms]
 //
@@ -386,20 +387,21 @@ func getDefaultFeatureOrder() map[int]string {
 		10: "maxdownloadrate_kb",
 		11: "history_maxdownloadrate_kb",
 		12: "duration_minutes",
-		13: "last_used_seconds",
-		14: "is_udp",
-		15: "is_tcp",
-		16: "asn_feature",
-		17: "country_feature",
-		18: "address_feature",
-		19: "port_feature",
-		20: "traffic_ratio",
-		21: "traffic_density",
-		22: "connection_type_feature",
-		23: "asn_hash",
-		24: "host_hash",
-		25: "ip_hash",
-		26: "geoip_hash",
+		13: "history_duration_minutes",
+		14: "last_used_seconds",
+		15: "is_udp",
+		16: "is_tcp",
+		17: "asn_feature",
+		18: "country_feature",
+		19: "address_feature",
+		20: "port_feature",
+		21: "traffic_ratio",
+		22: "traffic_density",
+		23: "connection_type_feature",
+		24: "asn_hash",
+		25: "host_hash",
+		26: "ip_hash",
+		27: "geoip_hash",
 	}
 }
 
@@ -437,10 +439,9 @@ func (ft *FeatureTransforms) ApplyTransforms(features []float64) []float64 {
 		log.Errorln("[Smart] Apply transforms errors: %s", strings.Join(errors, "; "))
 	}
 
-	transformPool.Put(result)
-
 	out := make([]float64, len(result))
 	copy(out, result)
+	transformPool.Put(result)
 	return out
 }
 
