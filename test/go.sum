@@ -145,6 +145,7 @@ github.com/metacubex/quic-go v0.59.1-0.20260128071132-0f3233b973af/go.mod h1:oNz
 github.com/metacubex/quic-go v0.59.1-0.20260213014310-4df8f0de5b56/go.mod h1:oNzMrmylS897M3zSMuapIdwSwfq6F2qW01Z3NhVRJhk=
 github.com/metacubex/quic-go v0.59.1-0.20260413153657-53bb22f2c306/go.mod h1:oNzMrmylS897M3zSMuapIdwSwfq6F2qW01Z3NhVRJhk=
 github.com/metacubex/quic-go v0.59.1-0.20260520020949-fcd18c7b6ace/go.mod h1:2YEQEvFrZ5V76oynMBDTlN+4fdnSHCa2uNJxv3cm1HU=
+github.com/metacubex/quic-go v0.59.1-0.20260606115121-0662b57ad5bf/go.mod h1:2YEQEvFrZ5V76oynMBDTlN+4fdnSHCa2uNJxv3cm1HU=
 github.com/metacubex/sing-quic v0.0.0-20231130141855-0022295e524b h1:7XXoEePvxfkQN9b2wB8UXU3uzb9uL8syEFF7A9VAKKQ=
 github.com/metacubex/sing-quic v0.0.0-20231130141855-0022295e524b/go.mod h1:Gu5/zqZDd5G1AUtoV2yjAPWOEy7zwbU2DBUjdxJh0Kw=
 github.com/metacubex/sing-quic v0.0.0-20250523120938-f1a248e5ec7f/go.mod h1:JPTpf7fpnojsSuwRJExhSZSy63pVbp3VM39+zj+sAJM=
