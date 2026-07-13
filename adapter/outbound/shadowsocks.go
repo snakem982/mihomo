@@ -12,6 +12,7 @@ import (
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/ntp"
 	gost "github.com/metacubex/mihomo/transport/gost"
+	"github.com/metacubex/mihomo/transport/jls"
 	"github.com/metacubex/mihomo/transport/kcptun"
 	"github.com/metacubex/mihomo/transport/restls"
 	obfs "github.com/metacubex/mihomo/transport/simple-obfs"
@@ -36,6 +37,7 @@ type ShadowSocks struct {
 	gostOption      *gost.Option
 	shadowTLSOption *shadowtls.ShadowTLSOption
 	restlsConfig    *restls.Config
+	jlsConfig       *jls.ClientConfig
 	kcptunClient    *kcptun.Client
 }
 
@@ -70,6 +72,7 @@ type v2rayObfsOption struct {
 	PrivateKey               string            `obfs:"private-key,omitempty"`
 	Headers                  map[string]string `obfs:"headers,omitempty"`
 	SkipCertVerify           bool              `obfs:"skip-cert-verify,omitempty"`
+	NameCertVerify           string            `obfs:"name-cert-verify,omitempty"`
 	Mux                      bool              `obfs:"mux,omitempty"`
 	V2rayHttpUpgrade         bool              `obfs:"v2ray-http-upgrade,omitempty"`
 	V2rayHttpUpgradeFastOpen bool              `obfs:"v2ray-http-upgrade-fast-open,omitempty"`
@@ -86,6 +89,7 @@ type gostObfsOption struct {
 	PrivateKey     string            `obfs:"private-key,omitempty"`
 	Headers        map[string]string `obfs:"headers,omitempty"`
 	SkipCertVerify bool              `obfs:"skip-cert-verify,omitempty"`
+	NameCertVerify string            `obfs:"name-cert-verify,omitempty"`
 	Mux            bool              `obfs:"mux,omitempty"`
 }
 
@@ -96,15 +100,27 @@ type shadowTLSOption struct {
 	Certificate    string   `obfs:"certificate,omitempty"`
 	PrivateKey     string   `obfs:"private-key,omitempty"`
 	SkipCertVerify bool     `obfs:"skip-cert-verify,omitempty"`
+	NameCertVerify string   `obfs:"name-cert-verify,omitempty"`
 	Version        int      `obfs:"version,omitempty"`
 	ALPN           []string `obfs:"alpn,omitempty"`
 }
 
 type restlsOption struct {
-	Password     string `obfs:"password"`
-	Host         string `obfs:"host"`
-	VersionHint  string `obfs:"version-hint"`
-	RestlsScript string `obfs:"restls-script,omitempty"`
+	Password       string `obfs:"password"`
+	Host           string `obfs:"host"`
+	VersionHint    string `obfs:"version-hint"`
+	RestlsScript   string `obfs:"restls-script,omitempty"`
+	Fingerprint    string `obfs:"fingerprint,omitempty"`
+	SkipCertVerify bool   `obfs:"skip-cert-verify,omitempty"`
+	NameCertVerify string `obfs:"name-cert-verify,omitempty"`
+	ForceTLS12     bool   `obfs:"force-tls12,omitempty"` // for test
+}
+
+type jlsOption struct {
+	Host     string   `obfs:"host"`
+	Username string   `obfs:"username"`
+	Password string   `obfs:"password"`
+	ALPN     []string `obfs:"alpn,omitempty"`
 }
 
 type kcpTunOption struct {
@@ -165,6 +181,12 @@ func (ss *ShadowSocks) StreamConnContext(ctx context.Context, c net.Conn, metada
 		c, err = restls.NewRestls(ctx, c, ss.restlsConfig)
 		if err != nil {
 			return nil, fmt.Errorf("%s (restls) connect error: %w", ss.addr, err)
+		}
+		useEarly = true
+	case jls.Mode:
+		c, err = jls.NewClient(ctx, c, ss.jlsConfig)
+		if err != nil {
+			return nil, fmt.Errorf("%s (jls) connect error: %w", ss.addr, err)
 		}
 		useEarly = true
 	}
@@ -298,6 +320,7 @@ func NewShadowSocks(option ShadowSocksOption) (*ShadowSocks, error) {
 	var obfsOption *simpleObfsOption
 	var shadowTLSOpt *shadowtls.ShadowTLSOption
 	var restlsConfig *restls.Config
+	var jlsConfig *jls.ClientConfig
 	var kcptunClient *kcptun.Client
 	obfsMode := ""
 
@@ -335,6 +358,7 @@ func NewShadowSocks(option ShadowSocksOption) (*ShadowSocks, error) {
 		if opts.TLS {
 			v2rayOption.TLS = true
 			v2rayOption.SkipCertVerify = opts.SkipCertVerify
+			v2rayOption.NameCertVerify = opts.NameCertVerify
 			v2rayOption.Fingerprint = opts.Fingerprint
 			v2rayOption.Certificate = opts.Certificate
 			v2rayOption.PrivateKey = opts.PrivateKey
@@ -365,6 +389,7 @@ func NewShadowSocks(option ShadowSocksOption) (*ShadowSocks, error) {
 		if opts.TLS {
 			gostOption.TLS = true
 			gostOption.SkipCertVerify = opts.SkipCertVerify
+			gostOption.NameCertVerify = opts.NameCertVerify
 			gostOption.Fingerprint = opts.Fingerprint
 			gostOption.Certificate = opts.Certificate
 			gostOption.PrivateKey = opts.PrivateKey
@@ -392,6 +417,7 @@ func NewShadowSocks(option ShadowSocksOption) (*ShadowSocks, error) {
 			PrivateKey:        opt.PrivateKey,
 			ClientFingerprint: option.ClientFingerprint,
 			SkipCertVerify:    opt.SkipCertVerify,
+			NameCertVerify:    opt.NameCertVerify,
 			Version:           opt.Version,
 		}
 
@@ -411,7 +437,27 @@ func NewShadowSocks(option ShadowSocksOption) (*ShadowSocks, error) {
 		if err != nil {
 			return nil, fmt.Errorf("ss %s initialize restls-plugin error: %w", addr, err)
 		}
-
+		restlsConfig.InsecureSkipVerify = restlsOpt.SkipCertVerify
+		if restlsOpt.Fingerprint != "" {
+			err = restls.SetFingerprint(restlsConfig, restlsOpt.Fingerprint, restlsOpt.NameCertVerify)
+			if err != nil {
+				return nil, fmt.Errorf("ss %s initialize restls-plugin error: %w", addr, err)
+			}
+		} else if restlsOpt.NameCertVerify != "" {
+			restls.SetNameCertVerify(restlsConfig, restlsOpt.NameCertVerify)
+		}
+		restlsConfig.ForceTLS12 = restlsOpt.ForceTLS12
+	} else if option.Plugin == jls.Mode {
+		obfsMode = jls.Mode
+		jlsOpt := &jlsOption{}
+		if err := decoder.Decode(option.PluginOpts, jlsOpt); err != nil {
+			return nil, fmt.Errorf("ss %s initialize jls-plugin error: %w", addr, err)
+		}
+		jlsConfig, err = jls.NewClientConfig(jlsOpt.Host, jlsOpt.Username, jlsOpt.Password, jlsOpt.ALPN)
+		if err != nil {
+			return nil, fmt.Errorf("ss %s initialize jls-plugin error: %w", addr, err)
+		}
+		jlsConfig.ClientFingerprint = option.ClientFingerprint
 	} else if option.Plugin == kcptun.Mode {
 		obfsMode = kcptun.Mode
 		kcptunOpt := &kcpTunOption{}
@@ -478,6 +524,7 @@ func NewShadowSocks(option ShadowSocksOption) (*ShadowSocks, error) {
 		obfsOption:      obfsOption,
 		shadowTLSOption: shadowTLSOpt,
 		restlsConfig:    restlsConfig,
+		jlsConfig:       jlsConfig,
 		kcptunClient:    kcptunClient,
 	}
 	outbound.dialer = option.NewDialer(outbound.DialOptions())

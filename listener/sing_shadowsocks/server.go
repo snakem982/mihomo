@@ -10,11 +10,14 @@ import (
 	"github.com/metacubex/mihomo/common/sockopt"
 	C "github.com/metacubex/mihomo/constant"
 	LC "github.com/metacubex/mihomo/listener/config"
+	"github.com/metacubex/mihomo/listener/inner"
 	embedSS "github.com/metacubex/mihomo/listener/shadowsocks"
 	"github.com/metacubex/mihomo/listener/sing"
 	"github.com/metacubex/mihomo/log"
 	"github.com/metacubex/mihomo/ntp"
+	"github.com/metacubex/mihomo/transport/jls"
 	"github.com/metacubex/mihomo/transport/kcptun"
+	"github.com/metacubex/mihomo/transport/restls"
 	obfs "github.com/metacubex/mihomo/transport/simple-obfs"
 
 	shadowsocks "github.com/metacubex/sing-shadowsocks"
@@ -35,6 +38,8 @@ type Listener struct {
 	udpListeners []net.PacketConn
 	service      shadowsocks.Service
 	shadowTLS    *shadowtls.Service
+	resTLS       *restls.ServerConfig
+	jls          *jls.ServerConfig
 	simpleObfs   func(net.Conn) net.Conn
 }
 
@@ -138,6 +143,36 @@ func New(config LC.ShadowsocksServer, lc C.InboundListenConfig, tunnel C.Tunnel,
 		sl.service = &shadowTLSService{
 			Service:   sl.service,
 			shadowTLS: shadowTLS,
+		}
+	}
+
+	if config.ResTLS.Enable {
+		sl.resTLS = &restls.ServerConfig{
+			ServerHostname: config.ResTLS.Dest,
+			Password:       config.ResTLS.Password,
+			RestlsScript:   config.ResTLS.RestlsScript,
+			MinRecordLen:   config.ResTLS.MinRecordLen,
+			DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+				return inner.HandleTcp(tunnel, address, config.ResTLS.Proxy)
+			},
+		}
+	}
+
+	if config.JLSConfig.Enable {
+		sl.jls, err = jls.NewServerConfig(
+			config.JLSConfig.SNI,
+			config.JLSConfig.Dest,
+			common.Map(config.JLSConfig.Users, func(user LC.JLSUser) jls.User {
+				return jls.User{Username: user.Username, Password: user.Password}
+			}),
+			config.JLSConfig.ALPN,
+			config.JLSConfig.RateLimit,
+			func(ctx context.Context, network, address string) (net.Conn, error) {
+				return inner.HandleTcp(tunnel, address, config.JLSConfig.Proxy)
+			},
+		)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -281,6 +316,22 @@ func (l *Listener) AddrList() (addrList []net.Addr) {
 
 func (l *Listener) HandleConn(conn net.Conn, tunnel C.Tunnel, additions ...inbound.Addition) {
 	ctx := sing.WithAdditions(context.TODO(), additions...)
+	if l.jls != nil {
+		c, err := jls.Server(context.TODO(), conn, l.jls)
+		if err != nil {
+			_ = conn.Close()
+			return
+		}
+		conn = c
+	}
+	if l.resTLS != nil {
+		c, err := restls.Server(context.TODO(), conn, l.resTLS)
+		if err != nil {
+			_ = conn.Close()
+			return
+		}
+		conn = c
+	}
 	if l.simpleObfs != nil {
 		conn = l.simpleObfs(conn)
 	}

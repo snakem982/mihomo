@@ -6,10 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	Tvless "github.com/metacubex/mihomo/transport/vless"
 	"net/url"
 	"strconv"
 	"strings"
+
+	Tvless "github.com/metacubex/mihomo/transport/vless"
 
 	"github.com/metacubex/mihomo/log"
 )
@@ -71,8 +72,10 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 
 			proxies = append(proxies, hysteria)
 
-		case "hysteria2", "hy2":
-			urlHysteria2, err := url.Parse(line)
+		case "hysteria2", "hy2", "hysteria2+realm", "hy2+realm":
+			realmMode := strings.HasSuffix(scheme, "+realm")
+			hopLine, ports := splitHysteria2Ports(line)
+			urlHysteria2, err := url.Parse(hopLine)
 			if err != nil {
 				continue
 			}
@@ -102,8 +105,23 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 			hysteria2["fingerprint"] = query.Get("pinSHA256")
 			hysteria2["down"] = query.Get("down")
 			hysteria2["up"] = query.Get("up")
-			if ports := query.Get("mport"); ports != "" {
+
+			if mport := query.Get("mport"); mport != "" {
+				hysteria2["ports"] = mport
+			}
+			if ports != "" {
 				hysteria2["ports"] = ports
+			}
+
+			if realmMode {
+				token, _ := url.PathUnescape(urlHysteria2.User.String())
+				realmID, _ := url.PathUnescape(strings.TrimPrefix(urlHysteria2.EscapedPath(), "/"))
+				hysteria2["realm-opts"] = buildRealmOpts("https://"+urlHysteria2.Host, token, realmID, query["stun"])
+				if auth := query.Get("auth"); auth != "" {
+					hysteria2["password"] = auth
+				}
+			} else if auth := urlHysteria2.User.String(); auth != "" {
+				hysteria2["password"] = auth
 			}
 
 			proxies = append(proxies, hysteria2)

@@ -10,7 +10,10 @@ import (
 	N "github.com/metacubex/mihomo/common/net"
 	C "github.com/metacubex/mihomo/constant"
 	LC "github.com/metacubex/mihomo/listener/config"
+	"github.com/metacubex/mihomo/listener/inner"
 	"github.com/metacubex/mihomo/listener/sing"
+	"github.com/metacubex/mihomo/transport/jls"
+	"github.com/metacubex/mihomo/transport/restls"
 	"github.com/metacubex/mihomo/transport/shadowsocks/core"
 	obfs "github.com/metacubex/mihomo/transport/simple-obfs"
 	"github.com/metacubex/mihomo/transport/socks5"
@@ -23,6 +26,8 @@ type Listener struct {
 	udpListeners []*UDPListener
 	pickCipher   core.Cipher
 	handler      *sing.ListenerHandler
+	resTLS       *restls.ServerConfig
+	jls          *jls.ServerConfig
 	simpleObfs   func(net.Conn) net.Conn
 }
 
@@ -46,6 +51,38 @@ func New(config LC.ShadowsocksServer, lc C.InboundListenConfig, tunnel C.Tunnel,
 
 	sl := &Listener{config: config, pickCipher: pickCipher, handler: h}
 	_listener = sl
+
+	if config.ResTLS.Enable {
+		sl.resTLS = &restls.ServerConfig{
+			ServerHostname: config.ResTLS.Dest,
+			Password:       config.ResTLS.Password,
+			RestlsScript:   config.ResTLS.RestlsScript,
+			MinRecordLen:   config.ResTLS.MinRecordLen,
+			DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+				return inner.HandleTcp(tunnel, address, config.ResTLS.Proxy)
+			},
+		}
+	}
+
+	if config.JLSConfig.Enable {
+		users := make([]jls.User, len(config.JLSConfig.Users))
+		for i, user := range config.JLSConfig.Users {
+			users[i] = jls.User{Username: user.Username, Password: user.Password}
+		}
+		sl.jls, err = jls.NewServerConfig(
+			config.JLSConfig.SNI,
+			config.JLSConfig.Dest,
+			users,
+			config.JLSConfig.ALPN,
+			config.JLSConfig.RateLimit,
+			func(ctx context.Context, network, address string) (net.Conn, error) {
+				return inner.HandleTcp(tunnel, address, config.JLSConfig.Proxy)
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	if config.SimpleObfs.Enable {
 		switch config.SimpleObfs.Mode {
@@ -126,6 +163,22 @@ func (l *Listener) AddrList() (addrList []net.Addr) {
 }
 
 func (l *Listener) HandleConn(conn net.Conn, tunnel C.Tunnel, additions ...inbound.Addition) {
+	if l.jls != nil {
+		c, err := jls.Server(context.TODO(), conn, l.jls)
+		if err != nil {
+			_ = conn.Close()
+			return
+		}
+		conn = c
+	}
+	if l.resTLS != nil {
+		c, err := restls.Server(context.TODO(), conn, l.resTLS)
+		if err != nil {
+			_ = conn.Close()
+			return
+		}
+		conn = c
+	}
 	if l.simpleObfs != nil {
 		conn = l.simpleObfs(conn)
 	}
