@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"net"
 	"net/netip"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -14,7 +13,7 @@ import (
 	"github.com/metacubex/mihomo/transport/jls"
 	"github.com/metacubex/mihomo/transport/kcptun"
 	"github.com/metacubex/mihomo/transport/restls"
-	shadowtls "github.com/metacubex/mihomo/transport/sing-shadowtls"
+	"github.com/metacubex/mihomo/transport/shadowtls"
 
 	shadowsocks "github.com/metacubex/sing-shadowsocks"
 	"github.com/metacubex/sing-shadowsocks/shadowaead"
@@ -264,7 +263,7 @@ func TestInboundShadowSocks_SimpleObfs_Tls(t *testing.T) {
 }
 
 func TestInboundShadowSocks_KcpTun(t *testing.T) {
-	if runtime.GOOS == "windows" && strings.HasPrefix(runtime.Version(), "go1.20") {
+	if winGo120 {
 		t.Skip("skip kcptun test on windows go1.20")
 	}
 	inboundOptions := inbound.ShadowSocksOption{
