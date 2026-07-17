@@ -410,7 +410,7 @@ proxies: # socks5
     # udp: true # support UDP on version 3/4/5
     # reuse: false # v4/5 only
     # obfs-opts:
-    #   mode: http # or tls/shadow-tls
+    #   mode: http # or tls/shadow-tls/restls/jls
 
   - name: "snell-shadow-tls"
     type: snell
@@ -427,6 +427,32 @@ proxies: # socks5
       password: "shadow_tls_password"
       version: 2 # support 1/2/3
       alpn: ["h2","http/1.1"]
+
+  - name: "snell-restls"
+    type: snell
+    server: server
+    port: 44046
+    psk: yourpsk
+    # version: 4 # support 1/2/3/4/5
+    # client-fingerprint: chrome
+    obfs-opts:
+      mode: restls
+      host: bing.com
+      password: "restls_password"
+      version-hint: tls13
+
+  - name: "snell-jls"
+    type: snell
+    server: server
+    port: 44046
+    psk: yourpsk
+    # version: 4 # support 1/2/3/4/5
+    # client-fingerprint: chrome
+    obfs-opts:
+      mode: jls
+      host: bing.com
+      username: jls-user
+      password: "jls_password"
 
   # Shadowsocks
   # cipher支持:
@@ -1479,11 +1505,11 @@ proxies: # socks5
     # alpn: [h3]
     # quic-versions: [v1] # support v1/v2, default v1
     # udp-over-stream: false # UDP over stream, default false
-    # zero-rtt: false # 官方 server 的 0-RTT 路径可能在 JLS 认证完成前读取用户状态（已确认影响 v0.3.11）；使用官方 server 时必须在服务端关闭 zero-rtt
+    # zero-rtt: false # 官方 server 的 0-RTT 路径可能在 JLS 认证完成前读取用户状态（已确认影响 v0.3.11）；使用官方 server 如果遇到不通或断联情况，请在服务端关闭 zero-rtt
     # keep-alive-interval: 10000
     # congestion-controller: bbr # Available: "cubic", "new_reno", "bbr". Default: "cubic"
-    # up: 100 Mbps # enables brutal; client upload speed; requires mihomo ShadowQuic on both ends
-    # down: 100 Mbps # enables brutal; requested client download speed, capped by listener up; requires mihomo ShadowQuic on both ends
+    # up: 100 Mbps # enables brutal negotiation via a mihomo private extension; client upload speed; falls back to congestion-controller when unsupported
+    # down: 100 Mbps # enables brutal negotiation via a mihomo private extension; requested client download speed, capped by listener up; falls back to congestion-controller when unsupported
     # cwnd: 10 # default: 32
     # bbr-profile: "" # Available: "standard", "conservative", "aggressive". Default: "standard"
     # max-datagram-frame-size: 1400
@@ -2063,6 +2089,17 @@ listeners:
     #       password: password
     #   handshake:
     #     dest: test.com:443
+    # res-tls:
+    #   enable: false
+    #   dest: test.com:443
+    #   password: restls-password
+    # jls-config:
+    #   enable: false
+    #   users:
+    #     - username: jls-user
+    #       password: jls-password
+    #   dest: test.com:443
+    ## shadow-tls, res-tls and jls-config are mutually exclusive
     # rule: sub-rule-name1
     # proxy: proxy
 
@@ -2234,8 +2271,8 @@ listeners:
     # quic-versions: [v1] # 本机手动配置及探测失败时的版本；支持 v1/v2
     # zero-rtt: true
     # congestion-controller: bbr # Available: "cubic", "new_reno", "bbr". Default: "cubic"
-    # up: 100 Mbps # enables brutal; server upload/client download speed cap; requires mihomo ShadowQuic on both ends
-    # down: 100 Mbps # enables brutal; requested server download/client upload speed; requires mihomo ShadowQuic on both ends
+    # up: 100 Mbps # enables brutal negotiation via a mihomo private extension; server upload/client download speed cap; falls back to congestion-controller when unsupported
+    # down: 100 Mbps # enables brutal negotiation via a mihomo private extension; requested server download/client upload speed; falls back to congestion-controller when unsupported
     # ignore-client-bandwidth: false # for brutal; ignore outbound down and use listener down/auto instead
     # cwnd: 10 # default: 32
     # bbr-profile: "" # Available: "standard", "conservative", "aggressive". Default: "standard"
