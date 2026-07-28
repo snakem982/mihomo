@@ -225,7 +225,7 @@ func parseXHTTPExtra(extra map[string]any, opts map[string]any) {
 		opts["x-padding-method"] = v
 	}
 
-	if v, ok := extra["uplinkHttpMethod"].(string); ok && v != "" {
+	if v, ok := extra["uplinkHTTPMethod"].(string); ok && v != "" {
 		opts["uplink-http-method"] = v
 	}
 
