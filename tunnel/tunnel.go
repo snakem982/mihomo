@@ -219,7 +219,21 @@ func Proxies() map[string]C.Proxy {
 	configMux.RLock()
 	defer configMux.RUnlock()
 
-	return proxies
+	return ProxiesWithProviders()
+}
+
+func ProxiesWithProviders() map[string]C.Proxy {
+	allProxies := make(map[string]C.Proxy)
+	for name, proxy := range proxies {
+		allProxies[name] = proxy
+	}
+	for _, p := range providers {
+		for _, proxy := range p.Proxies() {
+			name := proxy.Name()
+			allProxies[name] = proxy
+		}
+	}
+	return allProxies
 }
 
 // Providers return all compatible providers
