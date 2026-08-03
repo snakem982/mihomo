@@ -57,8 +57,8 @@ require (
 	github.com/mdlayher/socket v0.5.1 // indirect
 	github.com/metacubex/gopacket v1.1.20-0.20230608035415-7e2f98a3e759 // indirect
 	github.com/metacubex/gvisor v0.0.0-20251227095601-261ec1326fe8 // indirect
-	github.com/metacubex/quic-go v0.59.1-0.20260606115121-0662b57ad5bf // indirect
-	github.com/metacubex/sing-quic v0.0.0-20260720020849-6c62e17225e8 // indirect
+	github.com/metacubex/quic-go v0.61.1-0.20260727080200-2548683b76f4 // indirect
+	github.com/metacubex/sing-quic v0.0.0-20260726014900-38b0e9295f51 // indirect
 	github.com/metacubex/sing-shadowsocks v0.2.12 // indirect
 	github.com/metacubex/sing-shadowsocks2 v0.2.7 // indirect
 	github.com/metacubex/sing-tun v0.4.21 // indirect

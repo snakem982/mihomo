@@ -129,9 +129,11 @@ github.com/metacubex/gvisor v0.0.0-20251227095601-261ec1326fe8/go.mod h1:8LpS0IJ
 github.com/metacubex/quic-go v0.40.1-0.20231130135418-0c1b47cf9394 h1:dIT+KB2hknBCrwVAXPeY9tpzzkOZP5m40yqUteRT6/Y=
 github.com/metacubex/quic-go v0.40.1-0.20231130135418-0c1b47cf9394/go.mod h1:F/t8VnA47xoia8ABlNA4InkZjssvFJ5p6E6jKdbkgAs=
 github.com/metacubex/quic-go v0.59.1-0.20260606115121-0662b57ad5bf/go.mod h1:2YEQEvFrZ5V76oynMBDTlN+4fdnSHCa2uNJxv3cm1HU=
+github.com/metacubex/quic-go v0.61.1-0.20260727080200-2548683b76f4/go.mod h1:KTmibo7vZo0gCxdFWrPEQ/u/RGt92mJkrXDE2Qg2/AU=
 github.com/metacubex/sing-quic v0.0.0-20231130141855-0022295e524b h1:7XXoEePvxfkQN9b2wB8UXU3uzb9uL8syEFF7A9VAKKQ=
 github.com/metacubex/sing-quic v0.0.0-20231130141855-0022295e524b/go.mod h1:Gu5/zqZDd5G1AUtoV2yjAPWOEy7zwbU2DBUjdxJh0Kw=
 github.com/metacubex/sing-quic v0.0.0-20260720020849-6c62e17225e8/go.mod h1:6ayFGfzzBE85csgQkM3gf4neFq6s0losHlPRSxY+nuk=
+github.com/metacubex/sing-quic v0.0.0-20260726014900-38b0e9295f51/go.mod h1:6ayFGfzzBE85csgQkM3gf4neFq6s0losHlPRSxY+nuk=
 github.com/metacubex/sing-shadowsocks v0.2.5 h1:O2RRSHlKGEpAVG/OHJQxyHqDy8uvvdCW/oW2TDBOIhc=
 github.com/metacubex/sing-shadowsocks v0.2.5/go.mod h1:Xz2uW9BEYGEoA8B4XEpoxt7ERHClFCwsMAvWaruoyMo=
 github.com/metacubex/sing-shadowsocks v0.2.12/go.mod h1:2e5EIaw0rxKrm1YTRmiMnDulwbGxH9hAFlrwQLQMQkU=
