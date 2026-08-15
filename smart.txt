@@ -1,0 +1,3 @@
+git checkout vernesong-alpha
+git pull https://github.com/vernesong/mihomo.git Alpha
+git push origin vernesong-alpha
