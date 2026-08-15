@@ -24,7 +24,6 @@ var (
 	bucketSubscriptionInfo = []byte("subscriptioninfo")
 	bucketSmartStats       = []byte("smart_stats")
 	bucketStorage          = []byte("storage")
-	bucketSmartStats       = []byte("smart_stats")
 )
 
 // CacheFile store and update the cache file
