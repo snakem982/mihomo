@@ -15,19 +15,19 @@ import (
 )
 
 var (
-	collectMutex           sync.Mutex
-	smartCollector         *DataCollector
+	collectMutex   sync.Mutex
+	smartCollector *DataCollector
 )
 
 type DataCollector struct {
-	mutex                  sync.Mutex
-	sampleCount            int
-	dataPath               string
-	file                   *os.File
-	writer                 *csv.Writer
-	configured             bool
-	smartCollectorSize     int64
-	lastFileCheck          time.Time
+	mutex              sync.Mutex
+	sampleCount        int
+	dataPath           string
+	file               *os.File
+	writer             *csv.Writer
+	configured         bool
+	smartCollectorSize int64
+	lastFileCheck      time.Time
 }
 
 const (
@@ -44,7 +44,7 @@ func InitCollector(collectSize float64) {
 	}
 
 	smartCollector = &DataCollector{
-		dataPath:           filepath.Join(C.Path.HomeDir(), "smart_weight_data.csv"),
+		dataPath:           filepath.Join(C.Path.HomeDir(), "smart/smart_weight_data.csv"),
 		smartCollectorSize: smartCollectorSize,
 	}
 }
@@ -61,7 +61,7 @@ func (c *DataCollector) AddSample(input *smart.ModelInput, metadata *C.Metadata,
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
-	if c.configured && time.Since(c.lastFileCheck) > 5 * time.Second {
+	if c.configured && time.Since(c.lastFileCheck) > 5*time.Second {
 		c.lastFileCheck = time.Now()
 		if _, err := os.Stat(c.dataPath); os.IsNotExist(err) {
 			log.Infoln("[Smart] Data file was deleted, reinitializing collector")
@@ -217,13 +217,13 @@ func (c *DataCollector) initializeWriter() error {
 	if fileExists {
 		if stat, err2 := file.Stat(); err2 == nil && stat.Size() > 0 {
 			last := make([]byte, 1)
-			if _, err2 = file.ReadAt(last, stat.Size() - 1); err2 == nil && last[0] != '\n' {
+			if _, err2 = file.ReadAt(last, stat.Size()-1); err2 == nil && last[0] != '\n' {
 				const scanSize = int64(65536)
 				readStart := stat.Size() - scanSize
 				if readStart < 0 {
 					readStart = 0
 				}
-				buf := make([]byte, stat.Size() - readStart)
+				buf := make([]byte, stat.Size()-readStart)
 				if _, err3 := file.ReadAt(buf, readStart); err3 == nil {
 					newlinePos := int64(-1)
 					for i := int64(len(buf)) - 1; i >= 0; i-- {
