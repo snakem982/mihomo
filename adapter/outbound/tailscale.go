@@ -41,6 +41,7 @@ type Tailscale struct {
 	cancel      context.CancelFunc
 	startOnce   sync.Once
 	startErr    error
+	started     bool
 
 	backendInitOnce sync.Once
 	backendInitCh   chan struct{}

@@ -63,8 +63,11 @@ type firstReadCallBackPacketConn struct {
 }
 
 func (c *firstReadCallBackPacketConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
-	c.firstWrite.CompareAndSwap(0, time.Now().UnixNano())
-	return c.PacketConn.WriteTo(b, addr)
+	n, err = c.PacketConn.WriteTo(b, addr)
+	if err == nil {
+		c.firstWrite.CompareAndSwap(0, time.Now().UnixNano())
+	}
+	return
 }
 
 func (c *firstReadCallBackPacketConn) onRead() {
@@ -78,13 +81,17 @@ func (c *firstReadCallBackPacketConn) onRead() {
 
 func (c *firstReadCallBackPacketConn) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 	n, addr, err = c.PacketConn.ReadFrom(b)
-	c.onRead()
+	if err == nil {
+		c.onRead()
+	}
 	return
 }
 
 func (c *firstReadCallBackPacketConn) WaitReadFrom() (data []byte, put func(), addr net.Addr, err error) {
 	data, put, addr, err = c.PacketConn.WaitReadFrom()
-	c.onRead()
+	if err == nil {
+		c.onRead()
+	}
 	return
 }
 

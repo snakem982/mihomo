@@ -132,75 +132,48 @@ type Snapshot struct {
 }
 
 func (m *Manager) joinSmartTarget(c Tracker) {
-	target := c.Info().Metadata.SmartTarget
+	info := c.Info()
+	target := info.Metadata.SmartTarget
 
 	if target == "" {
 		return
 	}
 
-	result, _ := m.smartTarget.LoadOrStore(target, xsync.NewMap[string, bool]())
-	result.Store(c.ID(), true)
+	id := c.ID()
 
-	asn := c.Info().Metadata.DstIPASN
-	if asn != "" && asn != "unknown" {
-		result, _ := m.smartTarget.LoadOrStore(asn, xsync.NewMap[string, bool]())
-		result.Store(c.ID(), true)
-	}
+	result, _ := m.smartTarget.LoadOrStoreFn(target, func() *xsync.Map[string, bool] {
+		return xsync.NewMap[string, bool]()
+	})
+	result.Store(id, true)
 }
 
 func (m *Manager) leaveSmartTarget(c Tracker) {
-	target := c.Info().Metadata.SmartTarget
+	info := c.Info()
+	target := info.Metadata.SmartTarget
 
 	if target == "" {
 		return
 	}
 
+	id := c.ID()
+
 	m.smartTarget.Compute(target, func(result *xsync.Map[string, bool], loaded bool) (*xsync.Map[string, bool], xsync.ComputeOp) {
 		if loaded {
-			result.Delete(c.ID())
-			if result.Size() == 0 {
+			result.Delete(id)
+			if result.IsEmpty() {
 				return result, xsync.DeleteOp
-			} else {
-				return result, xsync.UpdateOp
 			}
+			return result, xsync.UpdateOp
 		}
 		return result, xsync.CancelOp
 	})
-
-	asn := c.Info().Metadata.DstIPASN
-	if asn != "" && asn != "unknown" {
-		m.smartTarget.Compute(asn, func(result *xsync.Map[string, bool], loaded bool) (*xsync.Map[string, bool], xsync.ComputeOp) {
-			if loaded {
-				result.Delete(c.ID())
-				if result.Size() == 0 {
-					return result, xsync.DeleteOp
-				} else {
-					return result, xsync.UpdateOp
-				}
-			}
-			return result, xsync.CancelOp
-		})
-	}
 }
 
-func (m *Manager) GetSmartTargetIDs(target, asn string) map[string]bool {
-	targetIDs := make(map[string]bool)
-
+func (m *Manager) RangeSmartTarget(target string, fn func(id string) bool) {
 	if result, ok := m.smartTarget.Load(target); ok {
 		result.Range(func(id string, _ bool) bool {
-			targetIDs[id] = true
-			return true
+			return fn(id)
 		})
 	}
-
-	if asn != "" && asn != "unknown" {
-		if result, ok := m.smartTarget.Load(asn); ok {
-			result.Range(func(id string, _ bool) bool {
-				targetIDs[id] = true
-				return true
-			})
-		}
-	}
-
-	return targetIDs
 }
+

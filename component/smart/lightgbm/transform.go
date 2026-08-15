@@ -32,23 +32,25 @@ import (
 // 14=last_used_seconds
 // 15=is_udp
 // 16=is_tcp
-// 17=asn_feature
-// 18=country_feature
-// 19=address_feature
-// 20=port_feature
-// 21=traffic_ratio
-// 22=traffic_density
-// 23=connection_type_feature
-// 24=asn_hash
-// 25=host_hash
-// 26=ip_hash
-// 27=geoip_hash
+// 17=loss_rate
+// 18=cumul_loss_rate
+// 19=asn_feature
+// 20=country_feature
+// 21=address_feature
+// 22=port_feature
+// 23=traffic_ratio
+// 24=traffic_density
+// 25=connection_type_feature
+// 26=asn_hash
+// 27=host_hash
+// 28=ip_hash
+// 29=geoip_hash
 // ... (index=feature_name, one per line, up to MaxFeatureSize)
 // [/order]
 //
 // [definitions]
 // std_type=StandardScaler
-// std_features=2,3,4,5,6,7,8,9,10,11,12,13,21,22
+// std_features=2,3,4,5,6,7,8,9,10,11,12,13,23,24
 // std_mean=...comma separated float values...
 // std_scale=...comma separated float values...
 //
@@ -58,7 +60,7 @@ import (
 // robust_scale=...comma separated float values...
 // [/definitions]
 //
-// untransformed_features=15:is_udp,16:is_tcp,17:asn_feature,18:country_feature,19:address_feature,20:port_feature,23:connection_type_feature,24:asn_hash,25:host_hash,26:ip_hash,27:geoip_hash
+// untransformed_features=14:last_used_seconds,15:is_udp,16:is_tcp,17:loss_rate,18:cumul_loss_rate,19:asn_feature,20:country_feature,21:address_feature,22:port_feature,25:connection_type_feature,26:asn_hash,27:host_hash,28:ip_hash,29:geoip_hash
 // transform=true
 // [/transforms]
 //
@@ -391,17 +393,19 @@ func getDefaultFeatureOrder() map[int]string {
 		14: "last_used_seconds",
 		15: "is_udp",
 		16: "is_tcp",
-		17: "asn_feature",
-		18: "country_feature",
-		19: "address_feature",
-		20: "port_feature",
-		21: "traffic_ratio",
-		22: "traffic_density",
-		23: "connection_type_feature",
-		24: "asn_hash",
-		25: "host_hash",
-		26: "ip_hash",
-		27: "geoip_hash",
+		17: "loss_rate",
+		18: "cumul_loss_rate",
+		19: "asn_feature",
+		20: "country_feature",
+		21: "address_feature",
+		22: "port_feature",
+		23: "traffic_ratio",
+		24: "traffic_density",
+		25: "connection_type_feature",
+		26: "asn_hash",
+		27: "host_hash",
+		28: "ip_hash",
+		29: "geoip_hash",
 	}
 }
 
@@ -504,6 +508,21 @@ func (ft *FeatureTransforms) applyRobustScaler(features []float64, transform Tra
 			}
 		}
 	}
+}
+
+func (ft *FeatureTransforms) IsCompatibleWith(defaultOrder map[int]string) bool {
+	if ft == nil || !ft.TransformsEnabled {
+		return true
+	}
+	if len(ft.FeatureOrder) != len(defaultOrder) {
+		return false
+	}
+	for idx, name := range defaultOrder {
+		if ft.FeatureOrder[idx] != name {
+			return false
+		}
+	}
+	return true
 }
 
 func (ft *FeatureTransforms) ValidateTransforms(expectedFeatureCount int) error {

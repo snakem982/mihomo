@@ -1,15 +1,6 @@
 name: Trigger CMFA Update
 on:
   workflow_dispatch:
-  push:
-    paths-ignore:
-      - "docs/**"
-      - "README.md"
-      - ".github/ISSUE_TEMPLATE/**"
-    branches:
-      - Alpha
-    tags:
-      - "v*"
       
 jobs:
   # Send "core-updated" to MetaCubeX/ClashMetaForAndroid to trigger update-dependencies

@@ -40,6 +40,7 @@ import (
 	"github.com/metacubex/mihomo/log"
 	"github.com/metacubex/mihomo/ntp/ntp"
 	"github.com/metacubex/mihomo/tunnel"
+	"github.com/metacubex/mihomo/component/smart/lightgbm"
 )
 
 var mux sync.Mutex
@@ -95,6 +96,7 @@ func ApplyConfig(cfg *config.Config, force bool) {
 		}
 	}
 
+	closeSmart()
 	updateExperimental(cfg.Experimental)
 	updateUsers(cfg.Users)
 	updateProxies(cfg.Proxies, cfg.Providers)
@@ -165,19 +167,22 @@ func GetGeneral() *config.General {
 			ASN:     geodata.ASNUrl(),
 			GeoSite: geodata.GeoSiteUrl(),
 		},
-		GeoAutoUpdate:     updater.GeoAutoUpdate(),
-		GeoUpdateInterval: updater.GeoUpdateInterval(),
-		GeodataMode:       geodata.GeodataMode(),
-		GeodataLoader:     geodata.LoaderName(),
-		GeositeMatcher:    geodata.SiteMatcherName(),
-		TCPConcurrent:     dialer.GetTcpConcurrent(),
-		FindProcessMode:   tunnel.FindProcessMode(),
-		Sniffing:          tunnel.IsSniffing(),
-		GlobalUA:          mihomoHttp.UA(),
-		ETagSupport:       resource.ETag(),
-		KeepAliveInterval: int(keepalive.KeepAliveInterval() / time.Second),
-		KeepAliveIdle:     int(keepalive.KeepAliveIdle() / time.Second),
-		DisableKeepAlive:  keepalive.DisableKeepAlive(),
+		GeoAutoUpdate:      updater.GeoAutoUpdate(),
+		GeoUpdateInterval:  updater.GeoUpdateInterval(),
+		GeodataMode:        geodata.GeodataMode(),
+		GeodataLoader:      geodata.LoaderName(),
+		GeositeMatcher:     geodata.SiteMatcherName(),
+		TCPConcurrent:      dialer.GetTcpConcurrent(),
+		FindProcessMode:    tunnel.FindProcessMode(),
+		Sniffing:           tunnel.IsSniffing(),
+		GlobalUA:           mihomoHttp.UA(),
+		ETagSupport:        resource.ETag(),
+		KeepAliveInterval:  int(keepalive.KeepAliveInterval() / time.Second),
+		KeepAliveIdle:      int(keepalive.KeepAliveIdle() / time.Second),
+		DisableKeepAlive:   keepalive.DisableKeepAlive(),
+		LgbmAutoUpdate:     updater.LgbmAutoUpdate(),
+		LgbmUpdateInterval: updater.LgbmUpdateInterval(),
+		LgbmUrl:            lightgbm.LgbmUrl(),
 	}
 
 	return general
@@ -376,6 +381,9 @@ func updateUpdater(cfg *config.Config) {
 	updater.SetGeoAutoUpdate(general.GeoAutoUpdate)
 	updater.SetGeoUpdateInterval(general.GeoUpdateInterval)
 
+	updater.SetLgbmAutoUpdate(general.LgbmAutoUpdate)
+	updater.SetLgbmUpdateInterval(general.LgbmUpdateInterval)
+
 	controller := cfg.Controller
 	updater.DefaultUiUpdater = updater.NewUiUpdater(controller.ExternalUI, controller.ExternalUIURL, controller.ExternalUIName)
 	updater.DefaultUiUpdater.AutoDownloadUI()
@@ -424,6 +432,8 @@ func updateGeneral(general *config.General, logging bool) {
 	geodata.SetGeoSiteUrl(general.GeoXUrl.GeoSite)
 	geodata.SetMmdbUrl(general.GeoXUrl.Mmdb)
 	geodata.SetASNUrl(general.GeoXUrl.ASN)
+	lightgbm.SetLgbmUrl(general.LgbmUrl)
+	lightgbm.InitCollector(general.SmartCollectorSize)
 	mihomoHttp.SetUA(general.GlobalUA)
 	resource.SetETag(general.ETagSupport)
 }
@@ -529,10 +539,23 @@ func updateIPTables(cfg *config.Config) {
 	log.Infoln("[IPTABLES] Setting iptables completed")
 }
 
+func closeSmart() {
+	for _, proxy := range tunnel.Proxies() {
+		if proxy.Type() == C.Smart {
+			adapter := proxy.Adapter()
+			if smart, ok := adapter.(*outboundgroup.Smart); ok {
+				smart.Close()
+			}
+		}
+	}
+}
+
 func Shutdown() {
 	listener.Cleanup()
 	tproxy.CleanupTProxyIPTables()
 	resolver.StoreFakePoolState()
+
+	closeSmart()
 
 	log.Warnln("Mihomo shutting down")
 }

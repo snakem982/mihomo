@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/metacubex/mihomo/common/atomic"
+	"github.com/metacubex/mihomo/common/convert"
 	"github.com/metacubex/mihomo/common/queue"
 	"github.com/metacubex/mihomo/common/utils"
 	"github.com/metacubex/mihomo/common/xsync"
@@ -23,8 +24,20 @@ import (
 
 var UnifiedDelay = atomic.NewBool(false)
 
+var (
+	banStatus = map[int]bool{
+		http.StatusForbidden:          true, // 403
+		http.StatusMethodNotAllowed:   true, // 405
+		http.StatusMisdirectedRequest: true, // 421
+		http.StatusNotImplemented:     true, // 501
+		http.StatusServiceUnavailable: true, // 503
+		520:                           true, // Cloudflare 520
+		599:                           true, // timeout
+	}
+)
+
 const (
-	defaultHistoriesNum = 4
+	defaultHistoriesNum = 10
 )
 
 type internalProxyState struct {
@@ -311,8 +324,7 @@ func urlToMetadata(rawURL string) (addr C.Metadata, err error) {
 }
 
 func (p *Proxy) StatusTest(ctx context.Context, rawURL string) (status uint16, ok bool, err error) {
-	addr, err := urlToMetadata(rawURL)
-	if err != nil {
+	if _, err = urlToMetadata(rawURL); err != nil {
 		return 1, false, err
 	}
 
@@ -321,43 +333,54 @@ func (p *Proxy) StatusTest(ctx context.Context, rawURL string) (status uint16, o
 		return 1, false, err
 	}
 
-	instance, err := p.DialContext(ctx, &addr)
-	if err != nil {
-		return 1, false, err
-	}
-	defer func() {
-		_ = instance.Close()
-	}()
-
-	parsedURL, err := url.Parse(rawURL)
-	if err != nil {
-		return 1, false, err
-	}
-	hostname := parsedURL.Hostname()
-
-	uConfig := tls.UConfig(tlsConfig)
-	uConfig.ServerName = hostname
-
-	fingerprint, ok2 := tls.GetFingerprint("chrome")
+	preset := convert.RandBrowserPreset()
+	fingerprint, ok2 := tls.GetFingerprint(preset.FingerprintName)
 	if !ok2 {
-		return 1, false, fmt.Errorf("failed to get TLS fingerprint")
+		return 1, false, fmt.Errorf("failed to get TLS fingerprint: %s", preset.FingerprintName)
 	}
 
+	// Resolve the target per hop instead of pinning the one from rawURL: redirects
+	// may point at another host, and every hop has to be dialed through the proxy.
+	dialProxy := func(dialCtx context.Context, targetAddr string) (net.Conn, error) {
+		var metadata C.Metadata
+		if err := metadata.SetRemoteAddress(targetAddr); err != nil {
+			return nil, err
+		}
+		return p.DialContext(dialCtx, &metadata)
+	}
+
+	// force ForceAttemptHTTP2 to false and use BuildWebsocketHandshakeState to custom http1.1 type for clear status code detection
 	transport := &http.Transport{
-		DialContext: func(context.Context, string, string) (net.Conn, error) {
-			return instance, nil
-		},
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 		ForceAttemptHTTP2:     false,
-		DialTLSContext: func(dialCtx context.Context, network, addr string) (net.Conn, error) {
-			uConn := tls.UClient(instance, uConfig, fingerprint)
+		// DialContext is required even though the probe URL is https: on a redirect to
+		// a plain-http URL the Transport uses this hook, and when it is nil it silently
+		// falls back to its package-level zeroDialer, which resolves through
+		// net.DefaultResolver and trips the guard installed in main().
+		DialContext: func(dialCtx context.Context, network, targetAddr string) (net.Conn, error) {
+			return dialProxy(dialCtx, targetAddr)
+		},
+		DialTLSContext: func(dialCtx context.Context, network, targetAddr string) (net.Conn, error) {
+			serverName, _, splitErr := net.SplitHostPort(targetAddr)
+			if splitErr != nil {
+				return nil, splitErr
+			}
+			rawConn, err := dialProxy(dialCtx, targetAddr)
+			if err != nil {
+				return nil, err
+			}
+			uCfg := tls.UConfig(tlsConfig)
+			uCfg.ServerName = serverName
+			uConn := tls.UClient(rawConn, uCfg, fingerprint)
 			if err := tls.BuildWebsocketHandshakeState(uConn); err != nil {
+				_ = rawConn.Close()
 				return nil, err
 			}
 			if err := uConn.HandshakeContext(dialCtx); err != nil {
+				_ = rawConn.Close()
 				return nil, err
 			}
 			return uConn, nil
@@ -381,30 +404,7 @@ func (p *Proxy) StatusTest(ctx context.Context, rawURL string) (status uint16, o
 		return 1, false, err
 	}
 	req = req.WithContext(ctx)
-
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
-	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
-	req.Header.Set("Cache-Control", "no-cache")
-	req.Header.Set("Pragma", "no-cache")
-	req.Header.Set("Sec-Ch-Ua", `"Not/A)Brand";v="8", "Chromium";v="132", "Google Chrome";v="132"`)
-	req.Header.Set("Sec-Ch-Ua-Mobile", "?0")
-	req.Header.Set("Sec-Ch-Ua-Platform", `"Windows"`)
-	req.Header.Set("Sec-Fetch-Dest", "document")
-	req.Header.Set("Sec-Fetch-Mode", "navigate")
-	req.Header.Set("Sec-Fetch-Site", "none")
-	req.Header.Set("Sec-Fetch-User", "?1")
-	req.Header.Set("Upgrade-Insecure-Requests", "1")
-
-	banStatus := map[int]bool{
-		http.StatusForbidden:        true, // 403
-		http.StatusMethodNotAllowed: true, // 405
-		http.StatusNotImplemented:   true, // 501
-		503:                         true, // 503
-		520:                         true, // Cloudflare 520
-		599:                         true, // timeout
-	}
+	req.Header = preset.Headers.Clone()
 
 	resp, err := client.Do(req)
 	var statusCode int

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math/rand"
 	"strings"
+	"time"
 
 	"github.com/metacubex/bbolt"
 	"github.com/metacubex/mihomo/log"
@@ -24,13 +25,34 @@ func (s *Store) BatchSave(operations []StoreOperation) error {
 		data []byte
 	}
 
+
+	var deleteKeys []string
+	deleteKeyIdx := make(map[string]int)
+
 	writeIndex := make(map[string]int, len(operations))
 	entries := make([]writeEntry, 0, len(operations))
+
 	for i := range operations {
 		key := formatOperationKey(&operations[i])
 		if key == "" {
 			continue
 		}
+
+		if operations[i].Type == OpDeleteData {
+			deleteKeyIdx[key] = len(deleteKeys)
+			deleteKeys = append(deleteKeys, key)
+			if idx, ok := writeIndex[key]; ok {
+				entries[idx].data = nil
+				delete(writeIndex, key)
+			}
+			continue
+		}
+
+		if didx, ok := deleteKeyIdx[key]; ok {
+			deleteKeys[didx] = ""
+			delete(deleteKeyIdx, key)
+		}
+
 		if idx, ok := writeIndex[key]; ok {
 			entries[idx].data = operations[i].Data
 			continue
@@ -38,7 +60,26 @@ func (s *Store) BatchSave(operations []StoreOperation) error {
 		writeIndex[key] = len(entries)
 		entries = append(entries, writeEntry{key: key, data: operations[i].Data})
 	}
-	if len(entries) == 0 {
+
+	n := 0
+	for _, e := range entries {
+		if e.data != nil {
+			entries[n] = e
+			n++
+		}
+	}
+	entries = entries[:n]
+
+	m := 0
+	for _, k := range deleteKeys {
+		if k != "" {
+			deleteKeys[m] = k
+			m++
+		}
+	}
+	deleteKeys = deleteKeys[:m]
+
+	if len(entries) == 0 && len(deleteKeys) == 0 {
 		return nil
 	}
 
@@ -49,6 +90,12 @@ func (s *Store) BatchSave(operations []StoreOperation) error {
 			var err error
 			bucket, err = tx.CreateBucketIfNotExists(bucketSmartStats)
 			if err != nil {
+				return err
+			}
+		}
+
+		for _, key := range deleteKeys {
+			if err := bucket.Delete([]byte(key)); err != nil {
 				return err
 			}
 		}
@@ -156,6 +203,14 @@ func (s *Store) GetSubBytesByPath(prefix string) (map[string][]byte, error) {
 			continue
 		}
 
+		if op.Type == OpDeleteData {
+			deleteKey := formatOperationKey(&op)
+			if deleteKey != "" {
+				delete(result, deleteKey)
+			}
+			continue
+		}
+
 		switch keyType {
 		case KeyTypeNode:
 			if op.Type == OpSaveNodeState && op.Node != "" {
@@ -216,8 +271,21 @@ func (s *Store) GetSubBytesByPath(prefix string) (map[string][]byte, error) {
 	}
 
 	if hasGroupLevel && maxResults > 0 {
-		if cachedGroup, ok := dbResultCache.Get(groupPrefix); ok {
+		if cachedGroup, expireTime, ok := dbResultCache.GetWithExpire(groupPrefix); ok {
+			isStale := expireTime.Before(time.Now())
 			merged := mergeIntoByPrefix(cachedGroup, result, prefix, strict)
+
+			if isStale {
+				if _, loading := dbResultRefreshFlags.LoadOrStore(groupPrefix, true); !loading {
+					go func() {
+						defer dbResultRefreshFlags.Delete(groupPrefix)
+						if groupResult, err := s.DBViewPrefixScan(groupPrefix, maxResults, false); err == nil {
+							dbResultCache.Set(groupPrefix, groupResult)
+						}
+					}()
+				}
+			}
+
 			if depth == 4 || merged > 0 {
 				return result, nil
 			}
@@ -225,29 +293,37 @@ func (s *Store) GetSubBytesByPath(prefix string) (map[string][]byte, error) {
 				groupResult, err := s.DBViewPrefixScan(groupPrefix, maxResults, false)
 				if err == nil {
 					dbResultCache.Set(groupPrefix, groupResult)
-					merged = mergeIntoByPrefix(groupResult, result, prefix, strict)
-					if depth == 4 || merged > 0 {
-						return result, nil
-					}
+					_ = mergeIntoByPrefix(groupResult, result, prefix, strict)
 				}
 			}
 		} else {
 			groupResult, err := s.DBViewPrefixScan(groupPrefix, maxResults, false)
 			if err == nil {
 				dbResultCache.Set(groupPrefix, groupResult)
-				merged := mergeIntoByPrefix(groupResult, result, prefix, strict)
-				if depth == 4 || merged > 0 {
-					return result, nil
-				}
+				_ = mergeIntoByPrefix(groupResult, result, prefix, strict)
 			}
 		}
 		return result, nil
 	}
 
-	if cached, ok := dbResultCache.Get(prefix); ok && maxResults > 0 {
+	if cached, expireTime, ok := dbResultCache.GetWithExpire(prefix); ok && maxResults > 0 {
+		isStale := expireTime.Before(time.Now())
 		for k, v := range cached {
 			if _, exists := result[k]; !exists {
 				result[k] = v
+			}
+		}
+
+		if isStale && !hasGroupLevel {
+			if keyType != KeyTypeStats && keyType != KeyTypeHostFailures {
+				if _, loading := dbResultRefreshFlags.LoadOrStore(prefix, true); !loading {
+					go func() {
+						defer dbResultRefreshFlags.Delete(prefix)
+						if dbResult, err := s.DBViewPrefixScan(prefix, maxResults, strict); err == nil {
+							dbResultCache.Set(prefix, dbResult)
+						}
+					}()
+				}
 			}
 		}
 	} else {

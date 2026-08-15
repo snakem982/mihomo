@@ -14,23 +14,23 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vernesong/leaves"
 	"github.com/metacubex/mihomo/common/singleflight"
 	mihomoHttp "github.com/metacubex/mihomo/component/http"
 	"github.com/metacubex/mihomo/component/smart"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/log"
-	"github.com/vernesong/leaves"
 )
 
 const (
-	MaxFeatureSize = 28
+	MaxFeatureSize = 30
 )
 
 var (
-	smartModel  *WeightModel
-	reloadModel = singleflight.Group[bool]{StoreResult: false}
-	modelOnce   sync.Once
-	lgbmUrl     string
+	smartModel   *WeightModel
+	reloadModel  = singleflight.Group[bool]{StoreResult: false}
+	modelOnce    sync.Once
+	lgbmUrl      string
 
 	domainRegex = regexp.MustCompile(`([a-zA-Z0-9-]+)(\.[a-zA-Z0-9-]+)+$`)
 
@@ -430,51 +430,51 @@ type WeightModel struct {
 }
 
 func GetModel() *WeightModel {
-	modelOnce.Do(func() {
-		m := &WeightModel{}
-		modelPath := C.Path.SmartModel()
+    modelOnce.Do(func() {
+        m := &WeightModel{}
+        modelPath := C.Path.SmartModel()
 
-		if _, err := os.Stat(modelPath); err == nil {
-			if err := m.loadModel(modelPath); err != nil {
-				log.Warnln("[Smart] Model.bin invalid, remove and download: %v", err)
-				if rmErr := os.Remove(modelPath); rmErr != nil {
-					log.Errorln("[Smart] Failed to remove invalid Model.bin: %v", rmErr)
-					return
-				}
+        if _, err := os.Stat(modelPath); err == nil {
+            if err := m.loadModel(modelPath); err != nil {
+                log.Warnln("[Smart] Model.bin invalid, remove and download: %v", err)
+                if rmErr := os.Remove(modelPath); rmErr != nil {
+                    log.Errorln("[Smart] Failed to remove invalid Model.bin: %v", rmErr)
+                    return
+                }
 
-				if downloadErr := downloadModel(modelPath); downloadErr != nil {
-					log.Errorln("[Smart] Failed to download Model.bin: %v", downloadErr)
-					return
-				}
+                if downloadErr := downloadModel(modelPath); downloadErr != nil {
+                    log.Errorln("[Smart] Failed to download Model.bin: %v", downloadErr)
+                    return
+                }
 
-				if reloadErr := m.loadModel(modelPath); reloadErr != nil {
-					log.Errorln("[Smart] Failed to load downloaded Model.bin: %v", reloadErr)
-					return
-				}
+                if reloadErr := m.loadModel(modelPath); reloadErr != nil {
+                    log.Errorln("[Smart] Failed to load downloaded Model.bin: %v", reloadErr)
+                    return
+                }
 
-				log.Infoln("[Smart] Model.bin downloaded and loaded successfully")
-			} else {
-				log.Infoln("[Smart] Model file loaded successfully")
-			}
-		} else {
-			log.Infoln("[Smart] Can't find Model.bin, start download")
-			if downloadErr := downloadModel(modelPath); downloadErr != nil {
-				log.Errorln("[Smart] Can't download Model.bin: %v", downloadErr)
-				return
-			}
+                log.Infoln("[Smart] Model.bin downloaded and loaded successfully")
+            } else {
+                log.Infoln("[Smart] Model file loaded successfully")
+            }
+        } else {
+            log.Infoln("[Smart] Can't find Model.bin, start download")
+            if downloadErr := downloadModel(modelPath); downloadErr != nil {
+                log.Errorln("[Smart] Can't download Model.bin: %v", downloadErr)
+                return
+            }
 
-			if loadErr := m.loadModel(modelPath); loadErr != nil {
-				log.Errorln("[Smart] Failed to load downloaded Model.bin: %v", loadErr)
-				return
-			}
+            if loadErr := m.loadModel(modelPath); loadErr != nil {
+                log.Errorln("[Smart] Failed to load downloaded Model.bin: %v", loadErr)
+                return
+            }
 
-			log.Infoln("[Smart] Download Model.bin finish")
-		}
+            log.Infoln("[Smart] Download Model.bin finish")
+        }
 
-		smartModel = m
-	})
+        smartModel = m
+    })
 
-	return smartModel
+    return smartModel
 }
 
 func (m *WeightModel) loadModel(path string) error {
@@ -596,6 +596,11 @@ func (m *WeightModel) PredictWeight(input *smart.ModelInput, priorityFactor floa
 		return smart.CalculateWeight(input, priorityFactor)
 	}
 
+	// 检测模型特征与当前版本是否兼容
+	if transforms != nil && !transforms.IsCompatibleWith(getDefaultFeatureOrder()) {
+		return smart.CalculateWeight(input, priorityFactor)
+	}
+
 	// 应用特征变换
 	if transforms != nil && transforms.TransformsEnabled {
 		features = transforms.ApplyTransforms(features)
@@ -673,6 +678,8 @@ func prepareFeatures(input *smart.ModelInput) []float64 {
 	// 网络协议特征
 	features = append(features, boolToFloat(input.IsUDP)) // 是否UDP协议
 	features = append(features, boolToFloat(input.IsTCP)) // 是否TCP协议
+	features = append(features, input.LossRate)           // 单次连接丢包率
+	features = append(features, input.CumulLossRate)      // 历史累计丢包率
 
 	// 2. ASN特征提取
 	asnFeature := extractASNFeature(input.DestIPASN)
@@ -1012,25 +1019,28 @@ func boolToFloat(b bool) float64 {
 	return 0.0
 }
 
-func CreateModelInputFromStatsRecord(atomicRecord *smart.AtomicStatsRecord, metadata *C.Metadata, uploadTotal, downloadTotal, maxUploadRate, maxDownloadRate, connectionDuration float64, wildcardTarget string) *smart.ModelInput {
+func CreateModelInputFromStatsRecord(atomicRecord *smart.AtomicStatsRecord, metadata *C.Metadata, uploadTotal, downloadTotal, maxUploadRate, maxDownloadRate, connectionDuration float64, wildcardTarget string, lossRate, cumulLossRate float64) *smart.ModelInput {
 	input := &smart.ModelInput{
-		Success:                   atomicRecord.Get("success").(int64),
-		Failure:                   atomicRecord.Get("failure").(int64),
-		ConnectTime:               atomicRecord.Get("connectTime").(int64),
-		Latency:                   atomicRecord.Get("latency").(int64),
-		UploadTotal:               uploadTotal,
-		HistoryUploadTotal:        atomicRecord.Get("uploadTotal").(float64),
-		MaxuploadRate:             maxUploadRate,
-		HistoryMaxUploadRate:      atomicRecord.Get("maxUploadRate").(float64),
-		DownloadTotal:             downloadTotal,
-		HistoryDownloadTotal:      atomicRecord.Get("downloadTotal").(float64),
-		MaxdownloadRate:           maxDownloadRate,
-		HistoryMaxDownloadRate:    atomicRecord.Get("maxDownloadRate").(float64),
-		HistoryConnectionDuration: atomicRecord.Get("duration").(float64),
-		ConnectionDuration:        connectionDuration,
-		LastUsed:                  atomicRecord.Get("lastUsed").(int64),
-		IsUDP:                     metadata.NetWork == C.UDP,
-		IsTCP:                     metadata.NetWork == C.TCP,
+		Success:                       atomicRecord.Get("success").(int64),
+		Failure:                       atomicRecord.Get("failure").(int64),
+		ConnectTime:                   atomicRecord.Get("connectTime").(int64),
+		Latency:                       atomicRecord.Get("latency").(int64),
+		UploadTotal:                   uploadTotal,
+		HistoryUploadTotal:            atomicRecord.Get("uploadTotal").(float64),
+		MaxuploadRate:                 maxUploadRate,
+		HistoryMaxUploadRate:          atomicRecord.Get("maxUploadRate").(float64),
+		DownloadTotal:                 downloadTotal,
+		HistoryDownloadTotal:          atomicRecord.Get("downloadTotal").(float64),
+		MaxdownloadRate:               maxDownloadRate,
+		HistoryMaxDownloadRate:        atomicRecord.Get("maxDownloadRate").(float64),
+		HistoryConnectionDuration:     atomicRecord.Get("duration").(float64),
+		ConnectionDuration:            connectionDuration,
+		LastUsed:                      atomicRecord.Get("lastUsed").(int64),
+		IsUDP:                         metadata.NetWork == C.UDP,
+		IsTCP:                         metadata.NetWork == C.TCP,
+		LossRate:                      lossRate,
+		CumulLossRate:                 cumulLossRate,
+		EmaLossRate:                   atomicRecord.Get("lossRate").(float64),
 	}
 
 	if metadata.DstIPASN == "unknown" {

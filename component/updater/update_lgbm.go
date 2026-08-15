@@ -15,13 +15,12 @@ import (
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/log"
 
-	"github.com/dmitryikh/leaves"
+	"github.com/vernesong/leaves"
 )
 
 var (
 	lgbmAutoUpdate     bool
 	lgbmUpdateInterval int
-	lgbmUrl            string
 
 	updatingLgbm atomic.Bool
 )
@@ -34,9 +33,6 @@ func LgbmUpdateInterval() int {
 	return lgbmUpdateInterval
 }
 
-func LgbmUrl() string {
-	return lgbmUrl
-}
 
 func SetLgbmAutoUpdate(newAutoUpdate bool) {
 	lgbmAutoUpdate = newAutoUpdate
@@ -46,12 +42,9 @@ func SetLgbmUpdateInterval(newUpdateInterval int) {
 	lgbmUpdateInterval = newUpdateInterval
 }
 
-func SetLgbmUrl(newUrl string) {
-	lgbmUrl = newUrl
-}
 
 func UpdateLgbmModel() (err error) {
-	modelUrl := lgbmUrl
+	modelUrl := lightgbm.LgbmUrl()
 	if modelUrl == "" {
 		modelUrl = lightgbm.GetModelDownloadURL()
 	}
@@ -66,6 +59,7 @@ func UpdateLgbmModel() (err error) {
 		return fmt.Errorf("can't download LightGBM model file: %w", err)
 	}
 	if oldHash.Equal(hash) {
+		log.Infoln("[Smart] LightGBM model is up to date")
 		return nil
 	}
 	if len(data) == 0 {
@@ -110,14 +104,12 @@ func updateLgbmModel() error {
 var ErrGetLgbmModelUpdateSkip = errors.New("LightGBM model is updating, skip")
 
 func UpdateLgbmModelDatabase() error {
-	log.Infoln("[Smart] Start updating LightGBM model")
-
-	if updatingLgbm.Load() {
+	if !updatingLgbm.CompareAndSwap(false, true) {
 		return ErrGetLgbmModelUpdateSkip
 	}
-
-	updatingLgbm.Store(true)
 	defer updatingLgbm.Store(false)
+
+	log.Infoln("[Smart] Start updating LightGBM model")
 
 	if err := updateLgbmModel(); err != nil {
 		log.Errorln("[Smart] update LightGBM model error: %s", err.Error())

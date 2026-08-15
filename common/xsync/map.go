@@ -1194,6 +1194,20 @@ func (m *Map[K, V]) Size() int {
 	return int(m.table.Load().sumSize())
 }
 
+// IsEmpty returns true if the map contains no entries.
+// Unlike Size() == 0, this short-circuits on the first non-zero
+// counter stripe, making it faster for non-empty maps.
+func (m *Map[K, V]) IsEmpty() bool {
+	m.initOnce.Do(m.init)
+	size := m.table.Load().size
+	for i := range size {
+		if atomic.LoadInt64(&size[i].c) != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // It is safe to use plain stores here because the destination bucket must be
 // either locked or exclusively written to by the helper during resize.
 func appendToBucket[K comparable, V any](h2 uint8, e *entry[K, V], b *bucketPadded) {

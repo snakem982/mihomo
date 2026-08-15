@@ -221,6 +221,10 @@ func main() {
 		updater.RegisterGeoUpdater()
 	}
 
+	if updater.LgbmAutoUpdate() {
+		updater.RegisterLgbmUpdater()
+	}
+
 	if postDown != "" {
 		defer func() {
 			if _, err := cmd.ExecShell(postDown); err != nil {

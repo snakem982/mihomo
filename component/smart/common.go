@@ -18,47 +18,48 @@ import (
 )
 
 const (
-	OpSaveNodeState = iota
+	OpSaveNodeState         = iota
 	OpSaveStats
 	OpSavePrefetch
 	OpSaveRanking
 	OpSaveHostFailures
+	OpDeleteData
 )
 
 const (
-	KeyTypePrefetch     = "prefetch"
-	KeyTypeNode         = "node"
-	KeyTypeStats        = "stats"
-	KeyTypeRanking      = "ranking"
-	KeyTypeHostFailures = "failures"
+	KeyTypePrefetch         = "prefetch"
+	KeyTypeNode             = "node"
+	KeyTypeStats            = "stats"
+	KeyTypeRanking          = "ranking"
+	KeyTypeHostFailures     = "failures"
 
-	WeightTypeTCP    = "tcp"
-	WeightTypeUDP    = "udp"
-	WeightTypeTCPASN = "tcp_asn"
-	WeightTypeUDPASN = "udp_asn"
+	WeightTypeTCP           = "tcp"
+	WeightTypeUDP           = "udp"
+	WeightTypeTCPASN        = "tcp_asn"
+	WeightTypeUDPASN        = "udp_asn"
 )
 
 const (
-	DefaultMinSampleCount = 2
+	DefaultMinSampleCount   = 2
 
-	MaxTargetsLimit     = 5000
-	MinTargetsLimit     = 500
-	MaxBatchThreshLimit = 300
-	MinBatchThreshLimit = 50
+	MaxTargetsLimit         = 5000
+	MinTargetsLimit         = 500
+	MaxBatchThreshLimit     = 300
+	MinBatchThreshLimit     = 50
 
-	RecordExpiredTime = 7 * 24 * time.Hour
+	RecordExpiredTime       = 7 * 24 * time.Hour
 
-	HostFailureNodeTTL = 24 * time.Hour
+	HostFailureNodeTTL      = 24 * time.Hour
 
-	AllowedWeight = 0.4
+	AllowedWeight           = 0.4
 
-	RankMostUsed   = "MostUsed"
-	RankOccasional = "OccasionalUsed"
-	RankRarelyUsed = "RarelyUsed"
+	RankMostUsed            = "MostUsed"
+	RankOccasional          = "OccasionalUsed"
+	RankRarelyUsed          = "RarelyUsed"
 )
 
 var (
-	db               *bbolt.DB
+	db *bbolt.DB
 	bucketSmartStats = []byte("smart_stats")
 
 	globalOperationQueue atomic.TypedValue[[]StoreOperation]
@@ -82,41 +83,40 @@ var CdnASNs = map[string]bool{
 	"22822":  true, // Limelight Networks
 	"15133":  true, // EdgeCast (Verizon)
 	"19551":  true, // Incapsula (Imperva)
-	"20446":  true, // StackPath / Bunny
+	"20446":  true, // StackPath
+	"5065":   true, // BunnyCDN
 	"60068":  true, // CDN77
 	"16509":  true, // Amazon CloudFront
 	"36408":  true, // CDNetworks
 	"4809":   true, // ChinaCache
+	"4847":   true, // ChinaNetCenter
 	"199524": true, // Gcore
 	"212238": true, // BelugaCDN
 	"55933":  true, // QUANTIL
 	"43260":  true, // Medianova
 	"43317":  true, // CDNvideo
 	"43996":  true, // CDNsun
-	"52320":  true, // GlobeNet
+	"33438":  true, // Edgio (Highwinds)
 	"396982": true, // Leaseweb CDN
 	"16276":  true, // OVH CDN
 	"30081":  true, // CacheFly
-	"12389":  true, // Zenlayer (跨境CDN)
+	"12389":  true, // Zenlayer
 	"37888":  true, // Alibaba CDN
 	"45090":  true, // Tencent CDN
-	"174":    true, // Cogent Communications (CDN)
-	"3356":   true, // Level 3 Communications (CDN)
-	"3209":   true, // Vodafone (CDN服务)
-	"14061":  true, // DigitalOcean
-	"8452":   true, // Infospace
+	"207143": true, // KeyCDN
 }
 
 type (
-	Store struct{}
+	Store struct {}
 
 	StoreOperation struct {
-		Type   int
-		Group  string
-		Config string
-		Target string
-		Node   string
-		Data   []byte
+		Type    int
+		KeyType string // used by OpDeleteData to identify the target key type
+		Group   string
+		Config  string
+		Target  string
+		Node    string
+		Data    []byte
 	}
 )
 
@@ -159,6 +159,29 @@ func formatOperationKey(op *StoreOperation) string {
 		return FormatDBKey(KeyTypeRanking, op.Config, op.Group)
 	case OpSaveHostFailures:
 		return FormatDBKey(KeyTypeHostFailures, op.Config, op.Group, op.Target)
+	case OpDeleteData:
+		kt := op.KeyType
+		if kt == "" {
+			if op.Target != "" {
+				kt = KeyTypeHostFailures
+			} else if op.Node != "" {
+				kt = KeyTypeNode
+			} else {
+				kt = KeyTypeRanking
+			}
+		}
+		switch kt {
+		case KeyTypeNode:
+			return FormatDBKey(KeyTypeNode, op.Config, op.Group, op.Node)
+		case KeyTypeStats:
+			return FormatDBKey(KeyTypeStats, op.Config, op.Group, op.Target, op.Node)
+		case KeyTypePrefetch:
+			return FormatDBKey(KeyTypePrefetch, op.Config, op.Group, op.Target)
+		case KeyTypeRanking:
+			return FormatDBKey(KeyTypeRanking, op.Config, op.Group)
+		default:
+			return FormatDBKey(KeyTypeHostFailures, op.Config, op.Group, op.Target)
+		}
 	default:
 		return ""
 	}
@@ -250,7 +273,7 @@ func GetEffectiveTarget(host string, dstIP string) string {
 
 		var normalizedSub string
 		if len(labels) == 1 {
-			normalizedSub = last
+			normalizedSub = "*"
 		} else {
 			normalizedSub = "*." + last
 		}
@@ -263,15 +286,15 @@ func GetEffectiveTarget(host string, dstIP string) string {
 	}
 
 	if targetCache != nil {
-		if result, _ := targetCache.GetOrStore(h, func() string {
-			return compute()
-		}); result != "" {
+		processResult := func(result string) string {
+			if result == "" {
+				return result
+			}
 			if strings.HasPrefix(result, "*.") {
 				targetCache.Set(result, result)
 				targetCache.Set(h, result)
 				return result
 			}
-
 			if result == h {
 				parts := strings.Split(h, ".")
 				if len(parts) == 2 {
@@ -288,10 +311,27 @@ func GetEffectiveTarget(host string, dstIP string) string {
 					}
 				}
 			}
-
 			targetCache.Set(h, result)
 			return result
 		}
+
+		if cachedResult, expireTime, ok := targetCache.GetWithExpire(h); ok {
+			isStale := expireTime.Before(time.Now())
+			finalResult := processResult(cachedResult)
+
+			if isStale {
+				if _, loading := targetCacheRefreshFlags.LoadOrStore(h, true); !loading {
+					go func() {
+						defer targetCacheRefreshFlags.Delete(h)
+						processResult(compute())
+					}()
+				}
+			}
+
+			return finalResult
+		}
+
+		return processResult(compute())
 	}
 
 	return compute()
@@ -407,7 +447,7 @@ func GetSystemMemoryUsage() float64 {
 	return 0.5
 }
 
-func InitQueue() {
+func InitQueue()  {
 	threshold := GetBatchSaveThreshold()
 	emptyQueue := make([]StoreOperation, 0, threshold)
 	replaceGlobalQueue(emptyQueue)

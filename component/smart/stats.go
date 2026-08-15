@@ -18,45 +18,51 @@ import (
 )
 
 var (
-	shardedLocks     [1024]*sync.RWMutex
+	shardedLocks     [1024]*sync.Mutex
 	shardedLocksOnce sync.Once
 )
 
 type StatsRecord struct {
-	Success            int64              `json:"success"`
-	Failure            int64              `json:"failure"`
-	ConnectTime        int64              `json:"connect_time"`
-	Latency            int64              `json:"latency"`
-	LastUsed           int64              `json:"last_used"`
-	Weights            map[string]float64 `json:"weights"`
-	UploadTotal        float64            `json:"upload_total"`
-	DownloadTotal      float64            `json:"download_total"`
-	MaxUploadRate      float64            `json:"max_upload_rate"`
-	MaxDownloadRate    float64            `json:"max_download_rate"`
-	ConnectionDuration float64            `json:"connection_duration"`
+	Success            int64                   `json:"success"`
+	Failure            int64                   `json:"failure"`
+	ConnectTime        int64                   `json:"connect_time"`
+	Latency            int64                   `json:"latency"`
+	LastUsed           int64                   `json:"last_used"`
+	Weights            map[string]float64      `json:"weights"`
+	UploadTotal        float64                 `json:"upload_total"`
+	DownloadTotal      float64                 `json:"download_total"`
+	MaxUploadRate      float64                 `json:"max_upload_rate"`
+	MaxDownloadRate    float64                 `json:"max_download_rate"`
+	ConnectionDuration float64                 `json:"connection_duration"`
+	LossRate           float64                 `json:"loss_rate,omitempty"`
+	CumulSent          uint64                  `json:"cumul_sent,omitempty"`
+	CumulRetrans       uint64                  `json:"cumul_retrans,omitempty"`
 }
 
 type NodeState struct {
-	Name           string `json:"name"`
-	LastChecked    int64  `json:"last_checked"`
-	BlockedUntil   int64  `json:"blocked_until"`
-	ThresholdGrade int    `json:"threshold_grade,omitempty"`
+	Name               string         `json:"name"`
+	LastChecked        int64          `json:"last_checked"`
+	BlockedUntil       int64          `json:"blocked_until"`
+	ThresholdGrade     int            `json:"threshold_grade,omitempty"`
 }
 
 type AtomicStatsRecord struct {
-	success     atomic.Int64
-	failure     atomic.Int64
-	connectTime atomic.Int64
-	latency     atomic.Int64
-	lastUsed    atomic.Int64
+	success         atomic.Int64
+	failure         atomic.Int64
+	connectTime     atomic.Int64
+	latency         atomic.Int64
+	lastUsed        atomic.Int64
 
 	uploadTotal     atomic.Float64
 	downloadTotal   atomic.Float64
 	duration        atomic.Float64
 	maxUploadRate   atomic.Float64
 	maxDownloadRate atomic.Float64
+	lossRate        atomic.Float64
+	cumulSent       atomic.Int64
+	cumulRetrans    atomic.Int64
 
-	weights *lru.LruCache[string, float64]
+	weights         *lru.LruCache[string, float64]
 }
 
 type CodeNodeSet struct {
@@ -88,8 +94,8 @@ type NodeRankItem struct {
 }
 
 type NodeRank struct {
-	LastUpdated int64          `json:"last_updated"`
-	Result      []NodeRankItem `json:"result"`
+	LastUpdated int64           `json:"last_updated"`
+	Result      []NodeRankItem  `json:"result"`
 }
 
 type targetMinHeap []ActiveTarget
@@ -98,12 +104,12 @@ type targetMinHeap []ActiveTarget
 func initShardedLocks() {
 	shardedLocksOnce.Do(func() {
 		for i := range shardedLocks {
-			shardedLocks[i] = &sync.RWMutex{}
+			shardedLocks[i] = &sync.Mutex{}
 		}
 	})
 }
 
-func GetTargetNodeLock(target, group, proxy string) *sync.RWMutex {
+func GetTargetNodeLock(target, group, proxy string) *sync.Mutex {
 	initShardedLocks()
 
 	const fnvOffset32 uint32 = 2166136261
@@ -127,38 +133,38 @@ func GetTargetNodeLock(target, group, proxy string) *sync.RWMutex {
 
 // 获取或创建原子记录
 func (s *Store) GetOrCreateAtomicRecord(cacheKey string, group, config, target, proxy string) *AtomicStatsRecord {
-	if value, ok := recordCache.Get(cacheKey); ok {
-		return value
-	}
+	record, _ := recordCache.GetOrStore(cacheKey, func() *AtomicStatsRecord {
+		r := &AtomicStatsRecord{
+			weights: lru.New[string, float64](lru.WithSize[string, float64](100)),
+		}
 
-	record := &AtomicStatsRecord{
-		weights: lru.New[string, float64](lru.WithSize[string, float64](100)),
-	}
-
-	if existingData, err := s.GetStatsForTarget(group, config, target, proxy); err == nil {
-		if data, exists := existingData[proxy]; exists {
-			var existingRecord StatsRecord
-			if json.Unmarshal(data, &existingRecord) == nil {
-				record.success.Store(existingRecord.Success)
-				record.failure.Store(existingRecord.Failure)
-				record.connectTime.Store(existingRecord.ConnectTime)
-				record.latency.Store(existingRecord.Latency)
-				record.lastUsed.Store(existingRecord.LastUsed)
-				record.uploadTotal.Store(existingRecord.UploadTotal)
-				record.downloadTotal.Store(existingRecord.DownloadTotal)
-				record.duration.Store(existingRecord.ConnectionDuration)
-				record.maxUploadRate.Store(existingRecord.MaxUploadRate)
-				record.maxDownloadRate.Store(existingRecord.MaxDownloadRate)
-				if existingRecord.Weights != nil {
-					for k, v := range existingRecord.Weights {
-						record.weights.Set(k, v)
+		if existingData, err := s.GetStatsForTarget(group, config, target, proxy); err == nil {
+			if data, exists := existingData[proxy]; exists {
+				var existingRecord StatsRecord
+				if json.Unmarshal(data, &existingRecord) == nil {
+					r.success.Store(existingRecord.Success)
+					r.failure.Store(existingRecord.Failure)
+					r.connectTime.Store(existingRecord.ConnectTime)
+					r.latency.Store(existingRecord.Latency)
+					r.lastUsed.Store(existingRecord.LastUsed)
+					r.uploadTotal.Store(existingRecord.UploadTotal)
+					r.downloadTotal.Store(existingRecord.DownloadTotal)
+					r.duration.Store(existingRecord.ConnectionDuration)
+					r.maxUploadRate.Store(existingRecord.MaxUploadRate)
+					r.maxDownloadRate.Store(existingRecord.MaxDownloadRate)
+					r.lossRate.Store(existingRecord.LossRate)
+					r.cumulSent.Store(int64(existingRecord.CumulSent))
+					r.cumulRetrans.Store(int64(existingRecord.CumulRetrans))
+					if existingRecord.Weights != nil {
+						for k, v := range existingRecord.Weights {
+							r.weights.Set(k, v)
+						}
 					}
 				}
 			}
 		}
-	}
-
-	recordCache.Set(cacheKey, record)
+		return r
+	})
 	return record
 }
 
@@ -179,6 +185,9 @@ func (record *AtomicStatsRecord) CreateStatsSnapshot(cacheKey string) *StatsReco
 		MaxUploadRate:      record.maxUploadRate.Load(),
 		MaxDownloadRate:    record.maxDownloadRate.Load(),
 		ConnectionDuration: record.duration.Load(),
+		LossRate:           record.lossRate.Load(),
+		CumulSent:          uint64(record.cumulSent.Load()),
+		CumulRetrans:       uint64(record.cumulRetrans.Load()),
 		Weights:            record.weights.FilterByKeyPrefix(""),
 	}
 
@@ -209,6 +218,12 @@ func (r *AtomicStatsRecord) Get(field string) interface{} {
 		return r.maxDownloadRate.Load()
 	case "duration":
 		return r.duration.Load()
+	case "lossRate":
+		return r.lossRate.Load()
+	case "cumulSent":
+		return r.cumulSent.Load()
+	case "cumulRetrans":
+		return r.cumulRetrans.Load()
 	default:
 		return nil
 	}
@@ -256,6 +271,18 @@ func (r *AtomicStatsRecord) Set(field string, value interface{}) {
 		if v, ok := value.(float64); ok {
 			r.duration.Store(v)
 		}
+	case "lossRate":
+		if v, ok := value.(float64); ok {
+			r.lossRate.Store(v)
+		}
+	case "cumulSent":
+		if v, ok := value.(int64); ok {
+			r.cumulSent.Store(v)
+		}
+	case "cumulRetrans":
+		if v, ok := value.(int64); ok {
+			r.cumulRetrans.Store(v)
+		}
 	}
 }
 
@@ -299,6 +326,26 @@ func (r *AtomicStatsRecord) Add(field string, value interface{}) {
 				r.downloadTotal.Store(maxDownload / 2)
 			} else {
 				r.downloadTotal.Add(v)
+			}
+		}
+	case "cumulSent":
+		if v, ok := value.(int64); ok && v > 0 {
+			current := r.cumulSent.Load()
+			if current > math.MaxInt64/2-v {
+				r.cumulSent.Store(current / 2)
+				r.cumulRetrans.Store(r.cumulRetrans.Load() / 2)
+			} else {
+				r.cumulSent.Add(v)
+			}
+		}
+	case "cumulRetrans":
+		if v, ok := value.(int64); ok && v > 0 {
+			current := r.cumulRetrans.Load()
+			if current > math.MaxInt64/2-v {
+				r.cumulSent.Store(r.cumulSent.Load() / 2)
+				r.cumulRetrans.Store(current / 2)
+			} else {
+				r.cumulRetrans.Add(v)
 			}
 		}
 	}
@@ -426,7 +473,7 @@ func (s *Store) GetNodeWeightRanking(group, config, testUrl string, proxies []C.
 
 	for _, node := range proxyNames {
 		score := nodeScores[node]
-		percentScore := math.Round(score/maxScore*100*100) / 100
+		percentScore := math.Round(score / maxScore * 100 * 100) / 100
 		resultItems = append(resultItems, NodeRankItem{Name: node, Weight: percentScore, Rank: ""})
 	}
 
@@ -455,22 +502,22 @@ func (s *Store) GetNodeWeightRanking(group, config, testUrl string, proxies []C.
 		}
 
 		if aliveCount > 0 && positiveAliveCount > 0 {
-			mostUsedBound := int(float64(positiveAliveCount) * 0.2)
-			if mostUsedBound < 1 {
-				mostUsedBound = 1
-			}
+				mostUsedBound := int(float64(positiveAliveCount) * 0.2)
+				if mostUsedBound < 1 {
+					mostUsedBound = 1
+				}
 
-			occasionalBound := mostUsedBound + int(float64(positiveAliveCount)*0.5)
+				occasionalBound := mostUsedBound + int(float64(positiveAliveCount)*0.5)
 
-			for i := 0; i < mostUsedBound; i++ {
-				resultItems[i].Rank = RankMostUsed
-			}
-			for i := mostUsedBound; i < occasionalBound; i++ {
-				resultItems[i].Rank = RankOccasional
-			}
-			for i := occasionalBound; i < aliveCount; i++ {
-				resultItems[i].Rank = RankRarelyUsed
-			}
+				for i := 0; i < mostUsedBound; i++ {
+					resultItems[i].Rank = RankMostUsed
+				}
+				for i := mostUsedBound; i < occasionalBound; i++ {
+					resultItems[i].Rank = RankOccasional
+				}
+				for i := occasionalBound; i < aliveCount; i++ {
+					resultItems[i].Rank = RankRarelyUsed
+				}
 		}
 
 		for i := aliveCount; i < len(resultItems); i++ {
@@ -480,9 +527,9 @@ func (s *Store) GetNodeWeightRanking(group, config, testUrl string, proxies []C.
 		wrapper := NodeRank{LastUpdated: time.Now().Unix(), Result: resultItems}
 		s.StoreNodeWeightRanking(group, config, wrapper)
 		return wrapper, nil
-	}
+    }
 
-	return NodeRank{}, nil
+    return NodeRank{}, nil
 }
 
 // 存储节点权重排名
@@ -543,12 +590,12 @@ func (s *Store) GetBestProxyForTarget(group, config, target, asnNumber string, i
 				if record.Weights == nil {
 					continue
 				}
-
+				
 				weight, ok := record.Weights[asnWeightType]
 				if !ok || weight <= 0 {
 					continue
 				}
-
+				
 				timeDecay := getTimeDecay(record.LastUsed)
 				decayedWeight := weight * timeDecay
 				nodesWithWeight[nodeName] += decayedWeight
@@ -617,9 +664,9 @@ func (s *Store) GetBestProxyForTarget(group, config, target, asnNumber string, i
 }
 
 // 获取活跃域名
-func (h targetMinHeap) Len() int            { return len(h) }
-func (h targetMinHeap) Less(i, j int) bool  { return h[i].LastUsed < h[j].LastUsed }
-func (h targetMinHeap) Swap(i, j int)       { h[i], h[j] = h[j], h[i] }
+func (h targetMinHeap) Len() int           { return len(h) }
+func (h targetMinHeap) Less(i, j int) bool { return h[i].LastUsed < h[j].LastUsed }
+func (h targetMinHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
 func (h *targetMinHeap) Push(x interface{}) { *h = append(*h, x.(ActiveTarget)) }
 func (h *targetMinHeap) Pop() interface{} {
 	old := *h
@@ -734,7 +781,7 @@ func (s *Store) GetActiveTargets(group, config string, limit int) []ActiveTarget
 	for h.Len() > 0 {
 		sorted = append(sorted, heap.Pop(h).(ActiveTarget))
 	}
-	for i, j := 0, len(sorted)-1; i < j; i, j = i+1, j-1 {
+	for i, j := 0, len(sorted) - 1; i < j; i, j = i + 1, j - 1 {
 		sorted[i], sorted[j] = sorted[j], sorted[i]
 	}
 
@@ -765,13 +812,13 @@ func (s *Store) RunPrefetch(group, config string, proxyMap map[string]bool) int 
 	}
 
 	type asnCacheKey struct {
-		asnNumber string
-		isUDP     bool
+		asnNumber   string
+		isUDP       bool
 	}
 
 	type asnCacheValue struct {
-		nodes   []string
-		weights []float64
+		nodes       []string
+		weights     []float64
 	}
 
 	asnCache := make(map[asnCacheKey]asnCacheValue)
@@ -791,8 +838,8 @@ func (s *Store) RunPrefetch(group, config string, proxyMap map[string]bool) int 
 			} else {
 				bestNodes, bestWeights, err = s.GetBestProxyForTarget(group, config, active.Target, active.ASN, active.IsUDP)
 				asnCache[key] = asnCacheValue{
-					nodes:   bestNodes,
-					weights: bestWeights,
+					nodes:      bestNodes,
+					weights:    bestWeights,
 				}
 			}
 		} else {
@@ -871,7 +918,7 @@ func (s *Store) RunPrefetch(group, config string, proxyMap map[string]bool) int 
 					newW := item.bestWeights[i]
 					if oldW, exists := finalNodeMap[newNode]; exists {
 						// prevent degrade recovery too fast
-						if oldW <= 0 || math.Abs(newW-oldW)/oldW > 0.1 {
+						if oldW <= 0 || math.Abs(newW - oldW) / oldW > 0.1 {
 							finalNodeMap[newNode] = newW
 							needUpdate = true
 						}
@@ -932,8 +979,8 @@ func (s *Store) RunPrefetch(group, config string, proxyMap map[string]bool) int 
 			if item.asnNumber != "" && !CdnASNs[item.asnNumber] {
 				key := asnCacheKey{item.asnNumber, item.isUDP}
 				asnCache[key] = asnCacheValue{
-					nodes:   sortedNodes,
-					weights: sortedWeights,
+					nodes:      sortedNodes,
+					weights:    sortedWeights,
 				}
 			}
 		}
@@ -970,23 +1017,19 @@ func (s *Store) RunPrefetch(group, config string, proxyMap map[string]bool) int 
 	return prefetchCount
 }
 
-// GetBlockedNodes 获取被屏蔽节点
-func (s *Store) GetBlockedNodes(group, config string) map[string]bool {
+func (s *Store) loadBlockedNodes(group, config string) map[string]bool {
 	cacheKey := FormatDBKey(config, group)
-	if cached, ok := blockedNodesCache.Get(cacheKey); ok {
-		return cached
-	}
-
 	stateData, err := s.GetNodeStates(group, config)
 	if err != nil {
 		return nil
 	}
+	now := time.Now().Unix()
 	blockedNodes := make(map[string]bool)
 
 	for nodeName, data := range stateData {
 		var state NodeState
 		if json.Unmarshal(data, &state) == nil {
-			if state.BlockedUntil > 0 && state.BlockedUntil > time.Now().Unix() {
+			if state.BlockedUntil > 0 && state.BlockedUntil > now {
 				blockedNodes[nodeName] = true
 			}
 		}
@@ -994,6 +1037,23 @@ func (s *Store) GetBlockedNodes(group, config string) map[string]bool {
 
 	blockedNodesCache.Set(cacheKey, blockedNodes)
 	return blockedNodes
+}
+
+// GetBlockedNodes 获取被屏蔽节点
+func (s *Store) GetBlockedNodes(group, config string) map[string]bool {
+	cacheKey := FormatDBKey(config, group)
+	if cached, expireTime, ok := blockedNodesCache.GetWithExpire(cacheKey); ok {
+		if expireTime.Before(time.Now()) {
+			if _, loading := blockedNodesRefreshFlags.LoadOrStore(cacheKey, true); !loading {
+				go func() {
+					defer blockedNodesRefreshFlags.Delete(cacheKey)
+					s.loadBlockedNodes(group, config)
+				}()
+			}
+		}
+		return cached
+	}
+	return s.loadBlockedNodes(group, config)
 }
 
 // GetNodeStates 获取节点状态
@@ -1036,7 +1096,7 @@ func (s *Store) GetStatsForTarget(group, config, target, proxy string) (map[stri
 		}
 	} else {
 		for fullPath, data := range rawResult {
-			nodeName := fullPath[strings.LastIndexByte(fullPath, '/')+1:]
+			nodeName := fullPath[strings.LastIndexByte(fullPath, '/') + 1:]
 			result[nodeName] = data
 		}
 	}
@@ -1125,7 +1185,7 @@ func (s *Store) GetAllNodesForGroup(group, config string) ([]string, error) {
 	nodeStatesData, err := s.GetSubBytesByPath(nodesPath)
 	if err == nil {
 		for key := range nodeStatesData {
-			nodeName := key[strings.LastIndexByte(key, '/')+1:]
+			nodeName := key[strings.LastIndexByte(key, '/') + 1:]
 			if nodeName != "" {
 				nodesMap[nodeName] = true
 			}
@@ -1139,7 +1199,7 @@ func (s *Store) GetAllNodesForGroup(group, config string) ([]string, error) {
 			if strings.Count(key, "/") < 5 {
 				continue
 			}
-			nodeName := key[strings.LastIndexByte(key, '/')+1:]
+			nodeName := key[strings.LastIndexByte(key, '/') + 1:]
 			if nodeName != "" {
 				nodesMap[nodeName] = true
 			}
@@ -1154,43 +1214,63 @@ func (s *Store) GetAllNodesForGroup(group, config string) ([]string, error) {
 }
 
 // 域名失败屏蔽
-func (s *Store) GetHostStatus(group, config, wildcardTarget string) (map[string]bool, int64, int64, bool) {
-	pathPrefix := FormatDBKey(KeyTypeHostFailures, config, group, wildcardTarget)
-
+func (s *Store) GetHostStatus(group, config, wildcardTarget string, extraTargets ...string) (failNodes map[string]int, lastCheck int64, lastFailure int64, blocked bool) {
 	now := time.Now().Unix()
-	resultNodes := make(map[string]bool)
 
-	hs, _ := hostStatusCache.GetOrStore(pathPrefix, func() *HostStatus { return &HostStatus{} })
-
-	hs.initOnce.Do(func() {
-		rawResult, err := s.GetSubBytesByPath(pathPrefix)
-		if err == nil {
-			for _, data := range rawResult {
-				if err := json.Unmarshal(data, hs); err == nil {
-					break
+	lookup := func(pathPrefix string) (nodes map[string]int, lastCheck int64, lastFailure int64, blocked bool) {
+		hs, _ := hostStatusCache.GetOrStore(pathPrefix, func() *HostStatus { return &HostStatus{} })
+		hs.initOnce.Do(func() {
+			if rawResult, err := s.GetSubBytesByPath(pathPrefix); err == nil {
+				for _, data := range rawResult {
+					if json.Unmarshal(data, hs) == nil {
+						break
+					}
+				}
+			}
+		})
+		hs.mu.RLock()
+		defer hs.mu.RUnlock()
+		for code, codeSet := range hs.Codes {
+			if codeSet == nil {
+				continue
+			}
+			for nodeName, nodeEntry := range codeSet.Nodes {
+				if nodeEntry == 0 || nodeEntry > now {
+					if nodes == nil {
+						nodes = make(map[string]int)
+					}
+					if oldCode, exists := nodes[nodeName]; !exists || code < oldCode {
+						nodes[nodeName] = code
+					}
 				}
 			}
 		}
-	})
+		return nodes, hs.LastCheck, hs.LastFailure, hs.Blocked
+	}
 
-	hs.mu.RLock()
-	defer hs.mu.RUnlock()
+	failNodes, lastCheck, lastFailure, blocked = lookup(FormatDBKey(KeyTypeHostFailures, config, group, wildcardTarget))
 
-	for _, codeSet := range hs.Codes {
-		if codeSet == nil {
+	for _, extraTarget := range extraTargets {
+		if extraTarget == "" || extraTarget == wildcardTarget {
 			continue
 		}
-		for nodeName, nodeEntry := range codeSet.Nodes {
-			if nodeEntry == 0 || nodeEntry > now {
-				resultNodes[nodeName] = true
+		if extraNodes, _, _, _ := lookup(FormatDBKey(KeyTypeHostFailures, config, group, extraTarget)); len(extraNodes) > 0 {
+			if failNodes == nil {
+				failNodes = extraNodes
+			} else {
+				for k, v := range extraNodes {
+					if oldCode, exists := failNodes[k]; !exists || v < oldCode {
+						failNodes[k] = v
+					}
+				}
 			}
 		}
 	}
 
-	return resultNodes, hs.LastCheck, hs.LastFailure, hs.Blocked
+	return
 }
 
-func (s *Store) UpdateHostStatus(group, config, wildcardTarget string, metadata *C.Metadata, name string, maxFailedTimes int, failure, checked bool, statusCode int64) bool {
+func (s *Store) UpdateHostStatus(group, config, wildcardTarget string, metadata *C.Metadata, name string, maxFailedTimes int, hostFailLimit int, failure, checked bool, statusCode int64) bool {
 	if !checked {
 		return false
 	}
@@ -1239,18 +1319,16 @@ func (s *Store) UpdateHostStatus(group, config, wildcardTarget string, metadata 
 			continue
 		}
 		if code == 2 {
-			if hs.Blocked {
-				for nodeName, nodeEntry := range codeSet.Nodes {
-					if nodeEntry != 0 && nodeEntry <= now {
-						delete(codeSet.Nodes, nodeName)
-						if codeSet.NodeHosts != nil {
-							delete(codeSet.NodeHosts, nodeName)
-						}
+			for nodeName, nodeEntry := range codeSet.Nodes {
+				if nodeEntry != 0 && nodeEntry <= now {
+					delete(codeSet.Nodes, nodeName)
+					if codeSet.NodeHosts != nil {
+						delete(codeSet.NodeHosts, nodeName)
 					}
 				}
-				if len(codeSet.Nodes) == 0 {
-					delete(hs.Codes, code)
-				}
+			}
+			if len(codeSet.Nodes) == 0 {
+				delete(hs.Codes, code)
 			}
 			continue
 		}
@@ -1375,7 +1453,7 @@ saveAndReturn:
 			hostBlockingCount += len(cs.Nodes)
 		}
 	}
-	if hostBlockingCount > maxFailedTimes {
+	if hostBlockingCount > hostFailLimit {
 		hs.Blocked = true
 		failedBlock = false
 	} else {
@@ -1388,18 +1466,28 @@ saveAndReturn:
 		}
 	}
 
-	data, err := json.Marshal(hs)
-	if err != nil {
-		return failedBlock
-	}
+	if len(hs.Codes) > 0 {
+		data, err := json.Marshal(&hs)
+		if err != nil {
+			return failedBlock
+		}
 
-	s.AppendToGlobalQueue(StoreOperation{
-		Type:   OpSaveHostFailures,
-		Group:  group,
-		Config: config,
-		Target: wildcardTarget,
-		Data:   data,
-	})
+		s.AppendToGlobalQueue(StoreOperation{
+			Type:   OpSaveHostFailures,
+			Group:  group,
+			Config: config,
+			Target: wildcardTarget,
+			Data:   data,
+		})
+	} else {
+		s.AppendToGlobalQueue(StoreOperation{
+			Type:    OpDeleteData,
+			KeyType: KeyTypeHostFailures,
+			Group:   group,
+			Config:  config,
+			Target:  wildcardTarget,
+		})
+	}
 
 	return failedBlock
 }
@@ -1665,7 +1753,7 @@ func (s *Store) RemoveNodesData(group, config string, nodes []string) error {
 				if len(hs.Codes) == 0 {
 					failuresToDelete = append(failuresToDelete, path)
 				} else {
-					newData, merr := json.Marshal(hs)
+					newData, merr := json.Marshal(&hs)
 					if merr != nil {
 						if firstErr == nil {
 							firstErr = merr
@@ -1714,9 +1802,9 @@ func (s *Store) CleanupOldRecords(group, config string) {
 		}
 
 		type targetInfo struct {
-			time   time.Time
-			value  float64
-			target string
+			time    time.Time
+			value   float64
+			target  string
 		}
 		targetMap := make(map[string]*targetInfo)
 		var toDelete []string
@@ -1772,9 +1860,9 @@ func (s *Store) CleanupOldRecords(group, config string) {
 			}
 
 			targetMap[path] = &targetInfo{
-				time:   time.Unix(lastTime, 0),
-				value:  value,
-				target: target,
+				time:    time.Unix(lastTime, 0),
+				value:   value,
+				target:  target,
 			}
 		}
 
@@ -1834,7 +1922,7 @@ func (s *Store) CleanupOldRecords(group, config string) {
 				hostStatusCache.RemoveByKeyPrefix(pathPrefix)
 			}
 			log.Debugln("[SmartStore] Cleaned up [%d] old [%s] records, group [%s] keeping [%d] valuable and recent data...",
-				deleted, keyType, group, totalRecords-deleted)
+				deleted, keyType, group, totalRecords - deleted)
 		}
 	}
 

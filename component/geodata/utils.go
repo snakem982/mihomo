@@ -1,7 +1,13 @@
 package geodata
 
 import (
+	"bufio"
+	"bytes"
+	"encoding/binary"
 	"fmt"
+	"io"
+	"math"
+	"os"
 	"strings"
 
 	"github.com/metacubex/mihomo/common/singleflight"
@@ -50,14 +56,60 @@ func SetSiteMatcher(newMatcher string) {
 	}
 }
 
+func verifyGeodata(r io.Reader) error {
+	br := bufio.NewReader(r)
+	first := true
+	for {
+		tag, err := br.ReadByte()
+		if err == io.EOF {
+			if first {
+				return fmt.Errorf("invalid geodata file: empty file")
+			}
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("invalid geodata file: %w", err)
+		}
+		first = false
+		if tag != 0x0A {
+			return fmt.Errorf("invalid geodata file: unexpected byte 0x%02X", tag)
+		}
+
+		entryLen, err := binary.ReadUvarint(br)
+		if err != nil {
+			return fmt.Errorf("invalid geodata file: truncated varint: %w", err)
+		}
+		if entryLen == 0 {
+			return fmt.Errorf("invalid geodata file: zero-length entry")
+		}
+		if entryLen > math.MaxInt64 {
+			return fmt.Errorf("invalid geodata file: entry length overflow")
+		}
+		if _, err := io.CopyN(io.Discard, br, int64(entryLen)); err != nil {
+			return fmt.Errorf("invalid geodata file: truncated entry: %w", err)
+		}
+	}
+}
+
+func verifyGeodataFile(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return verifyGeodata(f)
+}
+
+func VerifyGeodataBytes(data []byte) error {
+	return verifyGeodata(bytes.NewReader(data))
+}
+
 func Verify(name string) error {
 	switch name {
 	case C.GeositeName:
-		_, err := LoadGeoSiteMatcher("CN")
-		return err
+		return verifyGeodataFile(C.Path.GeoSite())
 	case C.GeoipName:
-		_, err := LoadGeoIPMatcher("CN")
-		return err
+		return verifyGeodataFile(C.Path.GeoIP())
 	default:
 		return fmt.Errorf("not support name")
 	}
