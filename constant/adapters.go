@@ -121,6 +121,7 @@ type ProxyInfo struct {
 	RoutingMark  int
 	ProviderName string
 	DialerProxy  string
+	NonVoter     bool
 }
 
 type ProxyAdapter interface {
@@ -149,6 +150,9 @@ type ProxyAdapter interface {
 
 	// Close releasing associated resources
 	Close() error
+
+	// NonVoter 是否在URLTest中进行使用
+	NonVoter() bool
 }
 
 type DelayHistory struct {

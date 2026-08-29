@@ -165,6 +165,7 @@ func NewDnsWithOption(option DnsOption) *Dns {
 			Interface:    option.Interface,
 			RoutingMark:  option.RoutingMark,
 			Prefer:       option.IPVersion,
+			NonVoter:     option.NonVoter,
 		}),
 	}
 }

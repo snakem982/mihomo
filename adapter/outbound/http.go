@@ -179,6 +179,7 @@ func NewHttp(option HttpOption) (*Http, error) {
 			Interface:    option.Interface,
 			RoutingMark:  option.RoutingMark,
 			Prefer:       option.IPVersion,
+			NonVoter:     option.NonVoter,
 		}),
 		user:      option.UserName,
 		pass:      option.Password,

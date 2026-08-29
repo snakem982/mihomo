@@ -363,6 +363,7 @@ func NewWireGuard(option WireGuardOption) (*WireGuard, error) {
 			Interface:    option.Interface,
 			RoutingMark:  option.RoutingMark,
 			Prefer:       option.IPVersion,
+			NonVoter:     option.NonVoter,
 		}),
 	}
 	outbound.dialer = option.NewDialer(outbound.DialOptions())

@@ -76,6 +76,7 @@ func NewDirectWithOption(option DirectOption) *Direct {
 			Interface:    option.Interface,
 			RoutingMark:  option.RoutingMark,
 			Prefer:       option.IPVersion,
+			NonVoter:     option.NonVoter,
 		}),
 		loopBack: loopback.NewDetector(),
 	}

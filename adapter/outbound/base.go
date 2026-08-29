@@ -27,19 +27,20 @@ type ProxyAdapter interface {
 }
 
 type Base struct {
-	name   string
-	addr   string
-	tp     C.AdapterType
-	pdName string
-	udp    bool
-	xudp   bool
-	tfo    bool
-	mpTcp  bool
-	iface  string
-	rmark  int
-	prefer C.DNSPrefer
-	dialer C.Dialer
-	id     uuid.UUID
+	name     string
+	addr     string
+	tp       C.AdapterType
+	pdName   string
+	udp      bool
+	xudp     bool
+	tfo      bool
+	mpTcp    bool
+	iface    string
+	rmark    int
+	prefer   C.DNSPrefer
+	dialer   C.Dialer
+	id       uuid.UUID
+	nonVoter bool
 }
 
 type BaseOption struct {
@@ -54,22 +55,24 @@ type BaseOption struct {
 	Interface    string
 	RoutingMark  int
 	Prefer       C.DNSPrefer
+	NonVoter     bool
 }
 
 func NewBase(opt BaseOption) *Base {
 	return &Base{
-		name:   opt.Name,
-		addr:   opt.Addr,
-		tp:     opt.Type,
-		pdName: opt.ProviderName,
-		udp:    opt.UDP,
-		xudp:   opt.XUDP,
-		tfo:    opt.TFO,
-		mpTcp:  opt.MPTCP,
-		iface:  opt.Interface,
-		rmark:  opt.RoutingMark,
-		prefer: opt.Prefer,
-		id:     utils.NewUUIDV4(),
+		name:     opt.Name,
+		addr:     opt.Addr,
+		tp:       opt.Type,
+		pdName:   opt.ProviderName,
+		udp:      opt.UDP,
+		xudp:     opt.XUDP,
+		tfo:      opt.TFO,
+		mpTcp:    opt.MPTCP,
+		iface:    opt.Interface,
+		rmark:    opt.RoutingMark,
+		prefer:   opt.Prefer,
+		id:       utils.NewUUIDV4(),
+		nonVoter: opt.NonVoter,
 	}
 }
 
@@ -107,6 +110,10 @@ func (b *Base) SupportUDP() bool {
 	return b.udp
 }
 
+func (b *Base) NonVoter() bool {
+	return b.nonVoter
+}
+
 // ProxyInfo implements C.ProxyAdapter
 func (b *Base) ProxyInfo() (info C.ProxyInfo) {
 	info.XUDP = b.xudp
@@ -116,6 +123,7 @@ func (b *Base) ProxyInfo() (info C.ProxyInfo) {
 	info.Interface = b.iface
 	info.RoutingMark = b.rmark
 	info.ProviderName = b.pdName
+	info.NonVoter = b.nonVoter
 	return
 }
 
@@ -197,7 +205,7 @@ type BasicOption struct {
 	RoutingMark int         `proxy:"routing-mark,omitempty"`
 	IPVersion   C.DNSPrefer `proxy:"ip-version,omitempty"`
 	DialerProxy string      `proxy:"dialer-proxy,omitempty"` // don't apply this option into groups, but can set a group name in a proxy
-
+	NonVoter    bool        `proxy:"non-voter,omitempty"`
 	//
 	// The following parameters are used internally, assign value by the structure decoder are disallowed
 	//

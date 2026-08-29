@@ -501,6 +501,7 @@ func NewVless(option VlessOption) (*Vless, error) {
 			Interface:    option.Interface,
 			RoutingMark:  option.RoutingMark,
 			Prefer:       option.IPVersion,
+			NonVoter:     option.NonVoter,
 		}),
 		client: client,
 		option: &option,

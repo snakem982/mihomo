@@ -103,6 +103,18 @@ func (u *URLTest) healthCheck() {
 func (u *URLTest) fast(touch bool) C.Proxy {
 	elm, _, shared := u.fastSingle.Do(func() (C.Proxy, error) {
 		proxies := u.GetProxies(touch)
+
+		// 原地过滤剔除 NonVoter 节点
+		n := 0
+		for _, proxy := range proxies {
+			if proxy.NonVoter() {
+				continue
+			}
+			proxies[n] = proxy
+			n++
+		}
+		proxies = proxies[:n]
+
 		if u.selected != "" {
 			for _, proxy := range proxies {
 				if !proxy.AliveForTestUrl(u.testUrl) {

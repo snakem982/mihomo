@@ -167,6 +167,7 @@ func NewMieru(option MieruOption) (*Mieru, error) {
 			Interface:    option.Interface,
 			RoutingMark:  option.RoutingMark,
 			Prefer:       option.IPVersion,
+			NonVoter:     option.NonVoter,
 		}),
 		option: &option,
 		client: c,

@@ -252,6 +252,7 @@ func NewHysteria(option HysteriaOption) (*Hysteria, error) {
 			Interface:    option.Interface,
 			RoutingMark:  option.RoutingMark,
 			Prefer:       option.IPVersion,
+			NonVoter:     option.NonVoter,
 		}),
 		option:    &option,
 		client:    client,

@@ -272,6 +272,7 @@ func NewSnell(option SnellOption) (*Snell, error) {
 			Interface:    option.Interface,
 			RoutingMark:  option.RoutingMark,
 			Prefer:       option.IPVersion,
+			NonVoter:     option.NonVoter,
 		}),
 		option:          &option,
 		psk:             psk,

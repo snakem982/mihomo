@@ -284,6 +284,7 @@ func NewZeroTier(option ZeroTierOption) (*ZeroTier, error) {
 			Interface:    option.Interface,
 			RoutingMark:  option.RoutingMark,
 			Prefer:       option.IPVersion,
+			NonVoter:     option.NonVoter,
 		}),
 		option:            option,
 		networkID:         networkID,

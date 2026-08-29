@@ -87,6 +87,7 @@ func NewGostRelay(option GostRelayOption) (*GostRelay, error) {
 			Interface:    option.Interface,
 			RoutingMark:  option.RoutingMark,
 			Prefer:       option.IPVersion,
+			NonVoter:     option.NonVoter,
 		}),
 		option: &option,
 	}
