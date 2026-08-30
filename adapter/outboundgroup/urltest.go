@@ -103,54 +103,65 @@ func (u *URLTest) healthCheck() {
 func (u *URLTest) fast(touch bool) C.Proxy {
 	elm, _, shared := u.fastSingle.Do(func() (C.Proxy, error) {
 		proxies := u.GetProxies(touch)
-		fast := proxies[0]
-
-		// 原地过滤剔除 NonVoter 节点
-		n := 0
-		for _, proxy := range proxies {
-			if proxy.NonVoter() {
-				continue
-			}
-			proxies[n] = proxy
-			n++
+		if len(proxies) == 0 {
+			return u.fastNode, nil
 		}
-		proxies = proxies[:n]
 
+		// 1. 优先使用手动指定的 selected 节点（忽略 NonVoter 限制，因为用户显式指定了）
 		if u.selected != "" {
 			for _, proxy := range proxies {
-				if !proxy.AliveForTestUrl(u.testUrl) {
-					continue
-				}
-				if proxy.Name() == u.selected {
+				if proxy.Name() == u.selected && proxy.AliveForTestUrl(u.testUrl) {
 					u.fastNode = proxy
-					return proxy, nil
+					return u.fastNode, nil
 				}
 			}
 		}
 
-		minDelay := fast.LastDelayForTestUrl(u.testUrl)
-		fastNotExist := true
+		// 2. 寻找延迟最低的有效 Voter 节点
+		var fast C.Proxy
+		var minDelay uint16
 
-		for _, proxy := range proxies[1:] {
+		fastNotExist := true
+		foundAlive := false
+
+		for _, proxy := range proxies {
 			if u.fastNode != nil && proxy.Name() == u.fastNode.Name() {
 				fastNotExist = false
 			}
 
-			if !proxy.AliveForTestUrl(u.testUrl) {
+			// 不参与选优：不可用 或 被标记为 NonVoter
+			if !proxy.AliveForTestUrl(u.testUrl) || proxy.NonVoter() {
 				continue
 			}
 
 			delay := proxy.LastDelayForTestUrl(u.testUrl)
-			if delay < minDelay {
+			if !foundAlive || delay < minDelay {
 				fast = proxy
 				minDelay = delay
+				foundAlive = true
 			}
+		}
 
+		// 3. 兜底逻辑：全不可用时，优先选第一个非 NonVoter 节点，实在没有才选 proxies[0]
+		if !foundAlive {
+			fast = proxies[0]
+			for _, proxy := range proxies {
+				if !proxy.NonVoter() {
+					fast = proxy
+					break
+				}
+			}
 		}
-		// tolerance
-		if u.fastNode == nil || fastNotExist || !u.fastNode.AliveForTestUrl(u.testUrl) || u.fastNode.LastDelayForTestUrl(u.testUrl) > fast.LastDelayForTestUrl(u.testUrl)+u.tolerance {
+
+		// 4. 更新 u.fastNode (增加对 u.fastNode 是否变为 NonVoter 的检查)
+		if u.fastNode == nil || fastNotExist || !u.fastNode.AliveForTestUrl(u.testUrl) || u.fastNode.NonVoter() {
 			u.fastNode = fast
+		} else {
+			if u.fastNode.LastDelayForTestUrl(u.testUrl) > minDelay+u.tolerance {
+				u.fastNode = fast
+			}
 		}
+
 		return u.fastNode, nil
 	})
 	if shared && touch { // a shared fastSingle.Do() may cause providers untouched, so we touch them again
