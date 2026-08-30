@@ -103,6 +103,7 @@ func (u *URLTest) healthCheck() {
 func (u *URLTest) fast(touch bool) C.Proxy {
 	elm, _, shared := u.fastSingle.Do(func() (C.Proxy, error) {
 		proxies := u.GetProxies(touch)
+		fast := proxies[0]
 
 		// 原地过滤剔除 NonVoter 节点
 		n := 0
@@ -127,7 +128,6 @@ func (u *URLTest) fast(touch bool) C.Proxy {
 			}
 		}
 
-		fast := proxies[0]
 		minDelay := fast.LastDelayForTestUrl(u.testUrl)
 		fastNotExist := true
 
