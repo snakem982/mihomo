@@ -53,10 +53,10 @@ func GetFingerprint(clientFingerprint string) (UClientHelloID, bool) {
 	if fingerprint, ok := fingerprints[clientFingerprint]; ok {
 		log.Debugln("use specified fingerprint:%s", fingerprint.Client)
 		return fingerprint, true
-	} else {
-		log.Warnln("wrong clientFingerprint:%s", clientFingerprint)
-		return UClientHelloID{}, false
 	}
+
+	//log.Warnln("wrong clientFingerprint:%s", clientFingerprint)
+	return UClientHelloID{}, false
 }
 
 var randomFingerprint = once.OnceValue(func() UClientHelloID {
