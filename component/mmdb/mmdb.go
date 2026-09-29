@@ -25,7 +25,7 @@ var (
 	asnOnce   sync.Once
 )
 
-func LoadFromBytes(buffer []byte) {
+func LoadFromBytes(buffer []byte) IPReader {
 	ipOnce.Do(func() {
 		mmdb, err := maxminddb.FromBytes(buffer)
 		if err != nil {
@@ -41,6 +41,8 @@ func LoadFromBytes(buffer []byte) {
 			ipReader.databaseType = typeMaxmind
 		}
 	})
+
+	return ipReader
 }
 
 func Verify(path string) bool {

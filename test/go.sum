@@ -148,6 +148,7 @@ github.com/metacubex/sing-tun v0.1.15-0.20231103033938-170591e8d5bd/go.mod h1:Q7
 github.com/metacubex/sing-tun v0.4.22/go.mod h1:9T0SN+FHvzRrn7hgl2kmXy5v8xzzLKW1hITButIPAco=
 github.com/metacubex/sing-tun v0.4.24/go.mod h1:YLk0jq8ITecb0LlNKAXC+NTkYTYmvihQxFAR495LN8c=
 github.com/metacubex/sing-tun v0.4.25/go.mod h1:+mS6xdBPSbJlujqM7MZ3JFdJ+DoLAbczAkPSFStlkkQ=
+github.com/metacubex/sing-tun v0.4.26/go.mod h1:q3Cb+D3hmlRTFYmVKc8k1FFUpy5+iMxhaXVA5CM/dNA=
 github.com/metacubex/sing-vmess v0.1.9-0.20230921005247-a0488d7dac74 h1:FtupiyFkaVjFvRa7B/uDtRWg5BNsoyPC9MTev3sDasY=
 github.com/metacubex/sing-vmess v0.1.9-0.20230921005247-a0488d7dac74/go.mod h1:8EWBZpc+qNvf5gmvjAtMHK1/DpcWqzfcBL842K00BsM=
 github.com/metacubex/sing-vmess v0.2.5/go.mod h1:AwtlzUgf8COe9tRYAKqWZ+leDH7p5U98a0ZUpYehl8Q=
