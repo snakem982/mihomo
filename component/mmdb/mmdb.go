@@ -25,7 +25,7 @@ var (
 	asnOnce   sync.Once
 )
 
-func LoadFromBytes(buffer []byte) IPReader {
+func LoadBytes2IPReader(buffer []byte) IPReader {
 	ipOnce.Do(func() {
 		mmdb, err := maxminddb.FromBytes(buffer)
 		if err != nil {
@@ -43,6 +43,18 @@ func LoadFromBytes(buffer []byte) IPReader {
 	})
 
 	return ipReader
+}
+
+func LoadBytes2ASNReader(buffer []byte) ASNReader {
+	asnOnce.Do(func() {
+		asn, err := maxminddb.FromBytes(buffer)
+		if err != nil {
+			log.Fatalln("Can't load ASN: %s", err.Error())
+		}
+		asnReader = ASNReader{Reader: asn}
+	})
+
+	return asnReader
 }
 
 func Verify(path string) bool {
