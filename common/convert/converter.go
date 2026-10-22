@@ -227,7 +227,7 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 			proxies = append(proxies, trojan)
 
 		case "vless":
-			urlVLess, err := parseUrl(line)
+			urlVLess, err := ParseUrl(line)
 			if err != nil {
 				continue
 			}
@@ -258,7 +258,7 @@ func ConvertsV2Ray(buf []byte) ([]map[string]any, error) {
 			dcBuf, err := tryDecodeBase64([]byte(body))
 			if err != nil {
 				// Xray VMessAEAD share link
-				urlVMess, err := parseUrl(line)
+				urlVMess, err := ParseUrl(line)
 				if err != nil {
 					continue
 				}
@@ -741,24 +741,38 @@ func uniqueName(names map[string]int, nameSrc string) string {
 	return name
 }
 
-func parseUrl(line string) (*url.URL, error) {
+func ParseUrl(line string) (*url.URL, error) {
 	urlVLess, err := url.Parse(line)
 	if err != nil {
 		return nil, err
 	}
 	host := urlVLess.Host
-	if !strings.Contains(host, ".") {
+
+	// 核心修复：
+	// 1. 如果 host 以 '[' 开头并以 ']' 结尾（说明是标准的 IPv6 格式），直接跳过 Base64 解码。
+	// 2. 或者如果里面包含 '.' 也不走 Base64 解码。
+	isIPv6 := strings.HasPrefix(host, "[") && strings.Contains(host, "]")
+	hasDot := strings.Contains(host, ".")
+
+	// 只有当它既不是 IPv6，又没有点号时，才走 Base64 混淆解码逻辑
+	if !isIPv6 && !hasDot {
 		data := string(DecodeBase64([]byte(host)))
 		i := strings.Split(data, "@")
 		if len(i) != 2 {
 			return nil, errors.New("host format error")
 		}
-		j := strings.Split(i[0], ":")
-		if len(j) == 2 {
-			data = j[1] + "@" + i[1]
+
+		// 使用 LastIndex 兼容可能带冒号的场景
+		lastColonIdx := strings.LastIndex(i[0], ":")
+		var processedAuth string
+		if lastColonIdx != -1 {
+			processedAuth = i[0][lastColonIdx+1:]
 		} else {
-			data = j[0] + "@" + i[1]
+			processedAuth = i[0]
 		}
+
+		data = processedAuth + "@" + i[1]
+
 		line = strings.Replace(line, host, data, 1)
 		urlVLess, err = url.Parse(line)
 		if err != nil {
@@ -766,7 +780,7 @@ func parseUrl(line string) (*url.URL, error) {
 		}
 	}
 
-	return urlVLess, err
+	return urlVLess, nil
 }
 
 func resolveSni(m map[string]any, query url.Values) {
