@@ -108,17 +108,15 @@ func handleVShareLink(names map[string]int, url *url.URL, scheme string, proxy m
 		proxy["h2-opts"] = h2Opts
 
 	case "ws", "httpupgrade":
-
+		headers := make(map[string]any)
 		wsOpts := make(map[string]any)
-		if path := query.Get("path"); path != "" {
-			wsOpts["path"] = path
-		}
-
-		if host := query.Get("host"); host != "" {
-			headers := make(map[string]any)
-			headers["User-Agent"] = RandUserAgent()
-			headers["Host"] = host
-			wsOpts["headers"] = headers
+		headers["User-Agent"] = RandUserAgent()
+		headers["Host"] = query.Get("host")
+		wsOpts["path"] = query.Get("path")
+		wsOpts["headers"] = headers
+		if network == "httpupgrade" {
+			proxy["network"] = "ws"
+			wsOpts["v2ray-http-upgrade"] = true
 		}
 
 		if earlyData := query.Get("ed"); earlyData != "" {
@@ -126,19 +124,18 @@ func handleVShareLink(names map[string]int, url *url.URL, scheme string, proxy m
 			if err != nil {
 				return fmt.Errorf("bad WebSocket max early data size: %v", err)
 			}
-			wsOpts["max-early-data"] = med
-			wsOpts["early-data-header-name"] = "Sec-WebSocket-Protocol"
+			switch network {
+			case "ws":
+				wsOpts["max-early-data"] = med
+				wsOpts["early-data-header-name"] = "Sec-WebSocket-Protocol"
+			case "httpupgrade":
+				wsOpts["v2ray-http-upgrade-fast-open"] = true
+			}
 		}
 		if earlyDataHeader := query.Get("eh"); earlyDataHeader != "" {
 			wsOpts["early-data-header-name"] = earlyDataHeader
 		}
 
-		if network == "httpupgrade" {
-			wsOpts["v2ray-http-upgrade"] = true
-			wsOpts["v2ray-http-upgrade-fast-open"] = true
-		}
-
-		proxy["network"] = "ws"
 		proxy["ws-opts"] = wsOpts
 
 	case "grpc":
