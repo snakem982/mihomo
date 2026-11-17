@@ -406,10 +406,14 @@ func splitHysteria2Ports(line string) (string, string) {
 	if at := strings.LastIndex(auth, "@"); at >= 0 {
 		userinfo, auth = auth[:at+1], auth[at+1:]
 	}
-	if strings.Contains(auth, "]") {
-		return line, ""
+	colon := -1
+	if closeBracket := strings.LastIndex(auth, "]"); closeBracket >= 0 {
+		if closeBracket+1 < len(auth) && auth[closeBracket+1] == ':' {
+			colon = closeBracket + 1
+		}
+	} else {
+		colon = strings.LastIndex(auth, ":")
 	}
-	colon := strings.LastIndex(auth, ":")
 	if colon < 0 {
 		return line, ""
 	}
